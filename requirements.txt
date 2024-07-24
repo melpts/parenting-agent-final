@@ -1,0 +1,13 @@
+streamlit
+openai
+langchain
+langsmith
+langchain_core
+langsmith
+streamlit_feedback
+langchain_community
+langchain-openai
+python-dotenv
+SQLAlchemy
+sqlite3
+sqlalchemy.orm
