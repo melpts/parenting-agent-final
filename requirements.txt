@@ -9,5 +9,3 @@ langchain_community
 langchain-openai
 python-dotenv
 SQLAlchemy
-sqlite3
-sqlalchemy.orm
