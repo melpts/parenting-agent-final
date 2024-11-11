@@ -9,6 +9,7 @@ import random
 from sqlalchemy import create_engine, Column, Integer, String, JSON, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from langsmith import Client
+from langsmith.run_helpers import traceable
 
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_openai import OpenAI
@@ -51,12 +52,13 @@ openai.api_key = os.environ["OPENAI_API_KEY"]
 os.environ["LANGCHAIN_API_KEY"] = st.secrets['LANGCHAIN_API_KEY']
 os.environ["LANGCHAIN_PROJECT"] = st.secrets['LANGCHAIN_PROJECT']
 os.environ["LANGCHAIN_PROJECT"] = "Parenting agent2"
-os.environ["LANGCHAIN_TRACING_V2"] = 'true'
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 
 # Initialize LangSmith Client
 smith_client = Client()
 
-# Strategy explanations (removed I-Messages)
+# Strategy explanations
 STRATEGY_EXPLANATIONS = {
     "Active Listening": "👂 Active Listening involves fully focusing on, understanding, and remembering what your child is saying. This helps them feel heard and valued.",
     "Positive Reinforcement": "⭐ Positive Reinforcement involves encouraging desired behaviors through specific praise or rewards, helping build self-esteem and motivation.",
@@ -254,6 +256,7 @@ def provide_realtime_feedback(parent_response, strategy):
     
     return strategy_feedback
 
+@traceable(name="generate_child_response")
 def generate_child_response(conversation_history, child_age, situation, mood, strategy, parent_response):
     child_name = st.session_state.get('child_name', 'the child')
     response_key = f"{parent_response}_{child_age}_{mood}_{strategy}"
@@ -263,7 +266,6 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
     
     messages = [
         {"role": "system", "content": f"""You are {child_name}, a {child_age}-year-old child responding to your parent. 
-
         Current mood: {mood}
         Situation: {situation}
 
@@ -285,16 +287,44 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
         Parent's response to react to: {parent_response}"""}
     ]
 
-    completion = openai.chat.completions.create(
-        model="gpt-4",
-        messages=messages,
-        temperature=0.7,
-        max_tokens=40
-    )
-    response = completion.choices[0].message.content.strip()
-    
-    st.session_state['stored_responses'][response_key] = response
-    return response
+    # Add LangChain run tracking
+    try:
+        completion = openai.chat.completions.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=40
+        )
+        response = completion.choices[0].message.content.strip()
+        
+        # Store run ID for reflection linking
+        if 'run_id' not in st.session_state:
+            st.session_state['run_id'] = smith_client.create_run(
+                name="parenting_conversation",
+                inputs={
+                    "child_age": child_age,
+                    "situation": situation,
+                    "mood": mood,
+                    "strategy": strategy
+                }
+            ).id
+        
+        # Log the interaction
+        smith_client.update_run(
+            st.session_state['run_id'],
+            outputs={
+                "parent_response": parent_response,
+                "child_response": response,
+                "strategy_used": strategy,
+                "mood": mood
+            }
+        )
+        
+        st.session_state['stored_responses'][response_key] = response
+        return response
+    except Exception as e:
+        print(f"Error in LangChain tracking: {e}")
+        return st.session_state['stored_responses'].get(response_key, "I don't know what to say...")
 
 def generate_conversation_starters(situation):
     prompt = f"""
@@ -317,6 +347,7 @@ def generate_conversation_starters(situation):
         ]
     )
     return completion.choices[0].message.content.strip()
+@traceable(name="simulate_conversation")
 def simulate_conversation_streamlit(name, child_age, situation):
     name = st.session_state.get('parent_name', name)
     child_name = st.session_state.get('child_name', '')
@@ -343,6 +374,21 @@ def simulate_conversation_streamlit(name, child_age, situation):
         st.session_state['strategy'] = "Active Listening"
         st.session_state['simulation_id'] = random.randint(1000, 9999)
 
+        # Create initial LangChain run
+        try:
+            st.session_state['run_id'] = smith_client.create_run(
+                name="parenting_conversation",
+                inputs={
+                    "parent_name": name,
+                    "child_name": child_name,
+                    "child_age": child_age,
+                    "situation": situation,
+                    "initial_strategy": "Active Listening"
+                }
+            ).id
+        except Exception as e:
+            print(f"Error creating initial LangChain run: {e}")
+
     # Display strategy selection using more interactive buttons
     st.write("Choose your communication strategy:")
     cols = st.columns(3)
@@ -355,6 +401,13 @@ def simulate_conversation_streamlit(name, child_age, situation):
                 type="primary" if strategy == st.session_state['strategy'] else "secondary"
             ):
                 st.session_state['strategy'] = strategy
+                try:
+                    smith_client.update_run(
+                        st.session_state['run_id'],
+                        outputs={"strategy_change": strategy}
+                    )
+                except Exception as e:
+                    print(f"Error logging strategy change: {e}")
                 st.rerun()
     
     # Display current strategy explanation
@@ -396,6 +449,21 @@ def simulate_conversation_streamlit(name, child_age, situation):
             "strategy_used": st.session_state['strategy']
         })
         
+        try:
+            # Log parent's response to LangChain
+            smith_client.update_run(
+                st.session_state['run_id'],
+                outputs={
+                    f"turn_{st.session_state['turn_count']}_parent": {
+                        "content": user_input,
+                        "strategy": st.session_state['strategy'],
+                        "feedback": feedback
+                    }
+                }
+            )
+        except Exception as e:
+            print(f"Error logging parent response: {e}")
+        
         # Generate child's response
         child_response = generate_child_response(
             st.session_state['conversation_history'],
@@ -414,11 +482,25 @@ def simulate_conversation_streamlit(name, child_age, situation):
         
         if random.random() < 0.3:  # 30% chance to change mood
             st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
+            try:
+                smith_client.update_run(
+                    st.session_state['run_id'],
+                    outputs={"mood_change": st.session_state['child_mood']}
+                )
+            except Exception as e:
+                print(f"Error logging mood change: {e}")
         
         st.session_state['turn_count'] += 1
         st.rerun()
     
     if end_button:
+        try:
+            smith_client.update_run(
+                st.session_state['run_id'],
+                outputs={"conversation_ended": True, "total_turns": st.session_state['turn_count']}
+            )
+        except Exception as e:
+            print(f"Error logging conversation end: {e}")
         end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
 
 def end_simulation(conversation_history, child_age, strategy):
@@ -471,6 +553,15 @@ def end_simulation(conversation_history, child_age, strategy):
             }
         }
         
+        try:
+            # Log reflection to LangChain
+            smith_client.update_run(
+                st.session_state['run_id'],
+                outputs={"final_reflection": reflection_data}
+            )
+        except Exception as e:
+            print(f"Error logging reflection to LangChain: {e}")
+        
         success = save_reflection(user_id, 'end_simulation', reflection_data)
         
         if success:
@@ -489,6 +580,7 @@ def reset_simulation():
     st.session_state['simulation_ended'] = False
     st.session_state['simulation_id'] = random.randint(1000, 9999)
     st.session_state['stored_responses'].clear()
+    st.session_state['run_id'] = None  # Reset LangChain run ID
 def main():
     st.set_page_config(layout="wide", page_title="Parenting Support Bot")
     
@@ -582,6 +674,7 @@ def display_saved_reflections(user_id):
             except Exception as e:
                 st.error(f"Error displaying reflection: {str(e)}")
 
+@traceable(name="display_advice")
 def display_advice(parent_name, child_age, situation):
     st.subheader("Parenting Advice")
     if situation:
@@ -596,21 +689,51 @@ def display_advice(parent_name, child_age, situation):
                     model="gpt-4",
                     messages=messages
                 )
+
+                # Log advice request to LangChain
+                run_id = smith_client.create_run(
+                    name="parenting_advice",
+                    inputs={
+                        "parent_name": parent_name,
+                        "child_age": child_age,
+                        "situation": situation
+                    }
+                ).id
+                
+                smith_client.update_run(
+                    run_id,
+                    outputs={"advice": completion.choices[0].message.content}
+                )
+                
                 st.markdown(completion.choices[0].message.content)
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
     else:
         st.warning("Please describe the situation in the sidebar to get advice.")
 
+@traceable(name="display_conversation_starters")
 def display_conversation_starters(situation):
     st.subheader("Conversation Starters")
     if situation:
         with st.spinner('Generating conversation starters...'):
             starters = generate_conversation_starters(situation)
-        st.write(starters)
+            
+            # Log conversation starters to LangChain
+            run_id = smith_client.create_run(
+                name="conversation_starters",
+                inputs={"situation": situation}
+            ).id
+            
+            smith_client.update_run(
+                run_id,
+                outputs={"starters": starters}
+            )
+            
+            st.write(starters)
     else:
         st.warning("Please describe the situation in the sidebar to get conversation starters.")
 
+@traceable(name="display_communication_techniques")
 def display_communication_techniques(situation):
     st.subheader("Communication Techniques")
     if situation:
@@ -624,6 +747,18 @@ def display_communication_techniques(situation):
                     model="gpt-4",
                     messages=messages
                 )
+
+                # Log communication techniques to LangChain
+                run_id = smith_client.create_run(
+                    name="communication_techniques",
+                    inputs={"situation": situation}
+                ).id
+                
+                smith_client.update_run(
+                    run_id,
+                    outputs={"techniques": completion.choices[0].message.content}
+                )
+                
                 st.markdown(completion.choices[0].message.content)
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
