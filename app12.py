@@ -300,6 +300,7 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
         # Store run ID for reflection linking
         if 'run_id' not in st.session_state:
             st.session_state['run_id'] = smith_client.create_run(
+                run_type="parenting_conversation",  # Add run_type argument
                 name="parenting_conversation",
                 inputs={
                     "child_age": child_age,
@@ -347,6 +348,7 @@ def generate_conversation_starters(situation):
         ]
     )
     return completion.choices[0].message.content.strip()
+
 @traceable(name="simulate_conversation")
 def simulate_conversation_streamlit(name, child_age, situation):
     name = st.session_state.get('parent_name', name)
@@ -377,393 +379,391 @@ def simulate_conversation_streamlit(name, child_age, situation):
         # Create initial LangChain run
         try:
             st.session_state['run_id'] = smith_client.create_run(
+                run_type="parenting_conversation",  # Add run_type argument
                 name="parenting_conversation",
                 inputs={
                     "parent_name": name,
                     "child_name": child_name,
-                    "child_age": child_age,
-                    "situation": situation,
-                    "initial_strategy": "Active Listening"
-                }
-            ).id
-        except Exception as e:
-            print(f"Error creating initial LangChain run: {e}")
+                  "child_age": child_age,
+                 "situation": situation,
+                 "initial_strategy": "Active Listening"
+            }
+        ).id
+    except Exception as e:
+         print(f"Error creating initial LangChain run: {e}")
 
-    # Display strategy selection using more interactive buttons
-    st.write("Choose your communication strategy:")
-    cols = st.columns(3)
-    for i, (strategy, explanation) in enumerate(STRATEGY_EXPLANATIONS.items()):
-        with cols[i]:
-            if st.button(
-                strategy,
-                key=f"strategy_{strategy}_{st.session_state['simulation_id']}",
-                use_container_width=True,
-                type="primary" if strategy == st.session_state['strategy'] else "secondary"
-            ):
-                st.session_state['strategy'] = strategy
-                try:
-                    smith_client.update_run(
-                        st.session_state['run_id'],
-                        outputs={"strategy_change": strategy}
-                    )
-                except Exception as e:
-                    print(f"Error logging strategy change: {e}")
-                st.rerun()
-    
-    # Display current strategy explanation
-    st.info(STRATEGY_EXPLANATIONS[st.session_state['strategy']])
-
-    # Display conversation history with improved formatting
-    st.write("Conversation:")
-    for msg in st.session_state['conversation_history']:
-        col1, col2 = st.columns([8, 4])
-        with col1:
-            if msg['role'] == 'parent':
-                st.markdown(f"**You:** {msg['content']}")
-            else:
-                st.markdown(f"**{child_name}:** {msg['content']}")
-        with col2:
-            if msg['role'] == 'parent' and 'feedback' in msg:
-                st.info(f"💡 {msg['feedback']}")
-
-    # Parent's input section
-    with st.form(key=f'parent_input_form_{st.session_state["simulation_id"]}_{st.session_state["turn_count"]}'):
-        user_input = st.text_area(
-            "Your response:",
-            key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
-            height=100
-        )
-        col1, col2 = st.columns(2)
-        with col1:
-            send_button = st.form_submit_button("Send Response", use_container_width=True)
-        with col2:
-            end_button = st.form_submit_button("End Conversation", use_container_width=True, type="secondary")
-    
-    if send_button and user_input:
-        feedback = provide_realtime_feedback(user_input, st.session_state['strategy'])
-        st.session_state['conversation_history'].append({
-            "role": "parent",
-            "content": user_input,
-            "id": len(st.session_state['conversation_history']),
-            "feedback": feedback,
-            "strategy_used": st.session_state['strategy']
-        })
-        
-        try:
-            # Log parent's response to LangChain
-            smith_client.update_run(
-                st.session_state['run_id'],
-                outputs={
-                    f"turn_{st.session_state['turn_count']}_parent": {
-                        "content": user_input,
-                        "strategy": st.session_state['strategy'],
-                        "feedback": feedback
-                    }
-                }
-            )
-        except Exception as e:
-            print(f"Error logging parent response: {e}")
-        
-        # Generate child's response
-        child_response = generate_child_response(
-            st.session_state['conversation_history'],
-            child_age,
-            situation,
-            st.session_state['child_mood'],
-            st.session_state['strategy'],
-            user_input
-        )
-        
-        st.session_state['conversation_history'].append({
-            "role": "child",
-            "content": child_response,
-            "id": len(st.session_state['conversation_history'])
-        })
-        
-        if random.random() < 0.3:  # 30% chance to change mood
-            st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
+# Display strategy selection using more interactive buttons
+st.write("Choose your communication strategy:")
+cols = st.columns(3)
+for i, (strategy, explanation) in enumerate(STRATEGY_EXPLANATIONS.items()):
+    with cols[i]:
+        if st.button(
+            strategy,
+            key=f"strategy_{strategy}_{st.session_state['simulation_id']}",
+            use_container_width=True,
+            type="primary" if strategy == st.session_state['strategy'] else "secondary"
+        ):
+            st.session_state['strategy'] = strategy
             try:
                 smith_client.update_run(
                     st.session_state['run_id'],
-                    outputs={"mood_change": st.session_state['child_mood']}
+                    outputs={"strategy_change": strategy}
                 )
             except Exception as e:
-                print(f"Error logging mood change: {e}")
-        
-        st.session_state['turn_count'] += 1
-        st.rerun()
+                print(f"Error logging strategy change: {e}")
+            st.rerun()
+
+# Display current strategy explanation
+st.info(STRATEGY_EXPLANATIONS[st.session_state['strategy']])
+
+# Display conversation history with improved formatting
+st.write("Conversation:")
+for msg in st.session_state['conversation_history']:
+    col1, col2 = st.columns([8, 4])
+    with col1:
+        if msg['role'] == 'parent':
+            st.markdown(f"**You:** {msg['content']}")
+        else:
+            st.markdown(f"**{child_name}:** {msg['content']}")
+    with col2:
+        if msg['role'] == 'parent' and 'feedback' in msg:
+            st.info(f"💡 {msg['feedback']}")
+
+# Parent's input section
+with st.form(key=f'parent_input_form_{st.session_state["simulation_id"]}_{st.session_state["turn_count"]}'):
+    user_input = st.text_area(
+        "Your response:",
+        key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
+        height=100
+    )
+    col1, col2 = st.columns(2)
+    with col1:
+        send_button = st.form_submit_button("Send Response", use_container_width=True)
+    with col2:
+        end_button = st.form_submit_button("End Conversation", use_container_width=True, type="secondary")
+
+if send_button and user_input:
+    feedback = provide_realtime_feedback(user_input, st.session_state['strategy'])
+    st.session_state['conversation_history'].append({
+        "role": "parent",
+        "content": user_input,
+        "id": len(st.session_state['conversation_history']),
+        "feedback": feedback,
+        "strategy_used": st.session_state['strategy']
+    })
     
-    if end_button:
+    try:
+        # Log parent's response to LangChain
+        smith_client.update_run(
+            st.session_state['run_id'],
+            outputs={
+                f"turn_{st.session_state['turn_count']}_parent": {
+                    "content": user_input,
+                    "strategy": st.session_state['strategy'],
+                    "feedback": feedback
+                }
+            }
+        )
+    except Exception as e:
+        print(f"Error logging parent response: {e}")
+    
+    # Generate child's response
+    child_response = generate_child_response(
+        st.session_state['conversation_history'],
+        child_age,
+        situation,
+        st.session_state['child_mood'],
+        st.session_state['strategy'],
+        user_input
+    )
+    
+    st.session_state['conversation_history'].append({
+        "role": "child",
+        "content": child_response,
+        "id": len(st.session_state['conversation_history'])
+    })
+    
+    if random.random() < 0.3:  # 30% chance to change mood
+        st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
         try:
             smith_client.update_run(
                 st.session_state['run_id'],
-                outputs={"conversation_ended": True, "total_turns": st.session_state['turn_count']}
+                outputs={"mood_change": st.session_state['child_mood']}
             )
         except Exception as e:
-            print(f"Error logging conversation end: {e}")
-        end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
+            print(f"Error logging mood change: {e}")
+    
+    st.session_state['turn_count'] += 1
+    st.rerun()
+
+if end_button:
+    try:
+        smith_client.update_run(
+            st.session_state['run_id'],
+            outputs={"conversation_ended": True, "total_turns": st.session_state['turn_count']}
+        )
+    except Exception as e:
+        print(f"Error logging conversation end: {e}")
+    end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
 
 def end_simulation(conversation_history, child_age, strategy):
-    st.session_state['simulation_ended'] = True
-    st.write("The simulation has ended.")
-    st.subheader("Final Reflection")
+st.session_state['simulation_ended'] = True
+st.write("The simulation has ended.")
+st.subheader("Final Reflection")
+with st.form(key='end_simulation_form'):
+    current_reflection = {}
+    strategies_used = set(msg.get('strategy_used', strategy) for msg in conversation_history if msg.get('role') == 'parent')
     
-    with st.form(key='end_simulation_form'):
-        current_reflection = {}
-        strategies_used = set(msg.get('strategy_used', strategy) for msg in conversation_history if msg.get('role') == 'parent')
-        
-        for strategy_used in strategies_used:
-            current_reflection[f"How effective was {strategy_used} in this conversation?"] = st.text_area(
-                f"How effective was {strategy_used} in this conversation?",
-                height=100,
-                key=f"reflection_strategy_{strategy_used}"
-            )
-        
-        current_reflection["What did you learn about your child's perspective?"] = st.text_area(
-            "What did you learn about your child's perspective?",
+    for strategy_used in strategies_used:
+        current_reflection[f"How effective was {strategy_used} in this conversation?"] = st.text_area(
+            f"How effective was {strategy_used} in this conversation?",
             height=100,
-            key="reflection_perspective"
+            key=f"reflection_strategy_{strategy_used}"
         )
+    
+    current_reflection["What did you learn about your child's perspective?"] = st.text_area(
+        "What did you learn about your child's perspective?",
+        height=100,
+        key="reflection_perspective"
+    )
+    
+    current_reflection["What would you do differently next time?"] = st.text_area(
+        "What would you do differently next time?",
+        height=100,
+        key="reflection_improvements"
+    )
+    
+    submit_button = st.form_submit_button("Save Reflection")
+
+if submit_button:
+    if not any(answer.strip() for answer in current_reflection.values()):
+        st.warning("Please fill in at least one reflection question before saving.")
+        return
         
-        current_reflection["What would you do differently next time?"] = st.text_area(
-            "What would you do differently next time?",
-            height=100,
-            key="reflection_improvements"
+    user_id = st.session_state.get('parent_name', 'Anonymous')
+    if user_id == 'Anonymous':
+        st.warning("Please enter your name in the sidebar to save reflections.")
+        return
+
+    reflection_data = {
+        'reflection_content': current_reflection,
+        'strategies_used': list(strategies_used),
+        'conversation_summary': {
+            'length': len(conversation_history),
+            'strategies_used': list(strategies_used),
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+    }
+    
+    try:
+        # Log reflection to LangChain
+        smith_client.update_run(
+            st.session_state['run_id'],
+            outputs={"final_reflection": reflection_data}
         )
+    except Exception as e:
+        print(f"Error logging reflection to LangChain: {e}")
+    
+    success = save_reflection(user_id, 'end_simulation', reflection_data)
+    
+    if success:
+        st.success("✨ Reflection saved successfully! View it in the 'View Reflections' tab.")
+        if st.button("Start New Conversation"):
+            reset_simulation()
+            st.rerun()
+    else:
+        st.error("Failed to save reflection. Please try again.")
+def reset_simulation():
+st.session_state['conversation_history'] = []
+st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
+st.session_state['turn_count'] = 0
+st.session_state['strategy'] = "Active Listening"
+st.session_state['simulation_ended'] = False
+st.session_state['simulation_id'] = random.randint(1000, 9999)
+st.session_state['stored_responses'].clear()
+st.session_state['run_id'] = None  # Reset LangChain run ID
+def main():
+st.set_page_config(layout="wide", page_title="Parenting Support Bot")
+
+with st.sidebar:
+    st.subheader("Parent Information")
+    
+    with st.form(key='parent_info_form'):
+        parent_name = st.text_input("Your Name")
+        child_name = st.text_input("Child's Name")
         
-        submit_button = st.form_submit_button("Save Reflection")
+        # Updated age ranges
+        age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
+        child_age = st.selectbox("Child's Age Range", age_ranges)
+        
+        situation = st.text_area("Describe the situation")
+        submit_button = st.form_submit_button("Save Information")
     
     if submit_button:
-        if not any(answer.strip() for answer in current_reflection.values()):
-            st.warning("Please fill in at least one reflection question before saving.")
-            return
-            
-        user_id = st.session_state.get('parent_name', 'Anonymous')
-        if user_id == 'Anonymous':
-            st.warning("Please enter your name in the sidebar to save reflections.")
-            return
+        st.session_state['parent_name'] = parent_name
+        st.session_state['child_name'] = child_name
+        st.session_state['child_age'] = child_age
+        st.session_state['situation'] = situation
+        st.success("Information saved!")
+        # Clear conversation history when new information is saved
+        if 'conversation_history' in st.session_state:
+            st.session_state.pop('conversation_history')
+        st.rerun()
 
-        reflection_data = {
-            'reflection_content': current_reflection,
-            'strategies_used': list(strategies_used),
-            'conversation_summary': {
-                'length': len(conversation_history),
-                'strategies_used': list(strategies_used),
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-        }
-        
-        try:
-            # Log reflection to LangChain
-            smith_client.update_run(
-                st.session_state['run_id'],
-                outputs={"final_reflection": reflection_data}
-            )
-        except Exception as e:
-            print(f"Error logging reflection to LangChain: {e}")
-        
-        success = save_reflection(user_id, 'end_simulation', reflection_data)
-        
-        if success:
-            st.success("✨ Reflection saved successfully! View it in the 'View Reflections' tab.")
-            if st.button("Start New Conversation"):
-                reset_simulation()
-                st.rerun()
-        else:
-            st.error("Failed to save reflection. Please try again.")
+st.title("Parenting Support Bot")
 
-def reset_simulation():
-    st.session_state['conversation_history'] = []
-    st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
-    st.session_state['turn_count'] = 0
-    st.session_state['strategy'] = "Active Listening"
-    st.session_state['simulation_ended'] = False
-    st.session_state['simulation_id'] = random.randint(1000, 9999)
-    st.session_state['stored_responses'].clear()
-    st.session_state['run_id'] = None  # Reset LangChain run ID
-def main():
-    st.set_page_config(layout="wide", page_title="Parenting Support Bot")
-    
-    with st.sidebar:
-        st.subheader("Parent Information")
-        
-        with st.form(key='parent_info_form'):
-            parent_name = st.text_input("Your Name")
-            child_name = st.text_input("Child's Name")
-            
-            # Updated age ranges
-            age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
-            child_age = st.selectbox("Child's Age Range", age_ranges)
-            
-            situation = st.text_area("Describe the situation")
-            submit_button = st.form_submit_button("Save Information")
-        
-        if submit_button:
-            st.session_state['parent_name'] = parent_name
-            st.session_state['child_name'] = child_name
-            st.session_state['child_age'] = child_age
-            st.session_state['situation'] = situation
-            st.success("Information saved!")
-            # Clear conversation history when new information is saved
-            if 'conversation_history' in st.session_state:
-                st.session_state.pop('conversation_history')
-            st.rerun()
-    
-    st.title("Parenting Support Bot")
+selected = st.radio(
+    "Choose an option:",
+    ["Advice", "Conversation Starters", "Communication Techniques", "Role-Play Simulation", "View Reflections"],
+    horizontal=True
+)
 
-    selected = st.radio(
-        "Choose an option:",
-        ["Advice", "Conversation Starters", "Communication Techniques", "Role-Play Simulation", "View Reflections"],
-        horizontal=True
-    )
+parent_name = st.session_state.get('parent_name', '')
+child_name = st.session_state.get('child_name', '')
+child_age = st.session_state.get('child_age', '3-5 years')
+situation = st.session_state.get('situation', '')
 
-    parent_name = st.session_state.get('parent_name', '')
-    child_name = st.session_state.get('child_name', '')
-    child_age = st.session_state.get('child_age', '3-5 years')
-    situation = st.session_state.get('situation', '')
-
-    if selected == "Advice":
-        display_advice(parent_name, child_age, situation)
-    elif selected == "Conversation Starters":
-        display_conversation_starters(situation)
-    elif selected == "Communication Techniques":
-        display_communication_techniques(situation)
-    elif selected == "Role-Play Simulation":
-        if not situation:
-            st.warning("Please describe the situation in the sidebar before starting the simulation.")
-        else:
-            simulate_conversation_streamlit(parent_name, child_age, situation)
-    elif selected == "View Reflections":
-        display_saved_reflections(parent_name)
+if selected == "Advice":
+    display_advice(parent_name, child_age, situation)
+elif selected == "Conversation Starters":
+    display_conversation_starters(situation)
+elif selected == "Communication Techniques":
+    display_communication_techniques(situation)
+elif selected == "Role-Play Simulation":
+    if not situation:
+        st.warning("Please describe the situation in the sidebar before starting the simulation.")
+    else:
+        simulate_conversation_streamlit(parent_name, child_age, situation)
+elif selected == "View Reflections":
+    display_saved_reflections(parent_name)
 
 def display_saved_reflections(user_id):
-    st.subheader("Your Saved Reflections")
+st.subheader("Your Saved Reflections")
+if not user_id:
+    st.warning("Please enter your name in the sidebar first.")
+    return
     
-    if not user_id:
-        st.warning("Please enter your name in the sidebar first.")
-        return
-        
-    reflections = load_reflections(user_id)
-    
-    if not reflections:
-        st.info("No reflections found. Complete a role-play simulation to save reflections.")
-        return
-    
-    st.write(f"Found {len(reflections)} saved reflection(s)")
-    
-    for reflection in reflections:
-        with st.expander(f"Reflection from {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
-            try:
-                content = json.loads(reflection.content)
-                if isinstance(content, dict):
-                    if 'reflection_content' in content:
-                        st.write("**Strategies used in this conversation:**")
-                        st.write(", ".join(content.get('strategies_used', [])))
-                        st.write("\n**Your Reflections:**")
-                        for question, answer in content['reflection_content'].items():
-                            if answer and answer.strip():
-                                st.markdown(f"**{question}**")
-                                st.write(answer)
-                                st.markdown("---")
-                    else:
-                        for question, answer in content.items():
-                            if answer and answer.strip():
-                                st.markdown(f"**{question}**")
-                                st.write(answer)
-                                st.markdown("---")
-            except Exception as e:
-                st.error(f"Error displaying reflection: {str(e)}")
+reflections = load_reflections(user_id)
+
+if not reflections:
+    st.info("No reflections found. Complete a role-play simulation to save reflections.")
+    return
+
+st.write(f"Found {len(reflections)} saved reflection(s)")
+
+for reflection in reflections:
+    with st.expander(f"Reflection from {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
+        try:
+            content = json.loads(reflection.content)
+            if isinstance(content, dict):
+                if 'reflection_content' in content:
+                    st.write("**Strategies used in this conversation:**")
+                    st.write(", ".join(content.get('strategies_used', [])))
+                    st.write("\n**Your Reflections:**")
+                    for question, answer in content['reflection_content'].items():
+                        if answer and answer.strip():
+                            st.markdown(f"**{question}**")
+                            st.write(answer)
+                            st.markdown("---")
+                else:
+                    for question, answer in content.items():
+                        if answer and answer.strip():
+                            st.markdown(f"**{question}**")
+                            st.write(answer)
+                            st.markdown("---")
+        except Exception as e:
+            st.error(f"Error displaying reflection: {str(e)}")
 
 @traceable(name="display_advice")
 def display_advice(parent_name, child_age, situation):
-    st.subheader("Parenting Advice")
-    if situation:
-        user_input = f"Parent: {parent_name}\nChild's age: {child_age}\nSituation: {situation}\nGoal: Get advice"
-        try:
-            with st.spinner('Processing your request...'):
-                messages = [
-                    {"role": "system", "content": "You are a parenting expert providing advice based on research-backed strategies."},
-                    {"role": "user", "content": user_input}
-                ]
-                completion = openai.chat.completions.create(
-                    model="gpt-4",
-                    messages=messages
-                )
+st.subheader("Parenting Advice")
+if situation:
+user_input = f"Parent: {parent_name}\nChild's age: {child_age}\nSituation: {situation}\nGoal: Get advice"
+try:
+with st.spinner('Processing your request...'):
+messages = [
+{"role": "system", "content": "You are a parenting expert providing advice based on research-backed strategies."},
+{"role": "user", "content": user_input}
+]
+completion = openai.chat.completions.create(
+model="gpt-4",
+messages=messages
+)
 
-                # Log advice request to LangChain
-                run_id = smith_client.create_run(
-                    name="parenting_advice",
-                    inputs={
-                        "parent_name": parent_name,
-                        "child_age": child_age,
-                        "situation": situation
-                    }
-                ).id
-                
-                smith_client.update_run(
-                    run_id,
-                    outputs={"advice": completion.choices[0].message.content}
-                )
-                
-                st.markdown(completion.choices[0].message.content)
-        except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
-    else:
-        st.warning("Please describe the situation in the sidebar to get advice.")
+# Log advice request to LangChain
+            run_id = smith_client.create_run(
+                run_type="parenting_advice",  # Add run_type argument
+                name="parenting_advice",
+                inputs={
+                    "parent_name": parent_name,
+                    "child_age": child_age,
+                    "situation": situation
+                }
+            ).id
+            
+            smith_client.update_run(
+                run_id,
+                outputs={"advice": completion.choices[0].message.content}
+            )
+            
+            st.markdown(completion.choices[0].message.content)
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+else:
+    st.warning("Please describe the situation in the sidebar to get advice.")
 
 @traceable(name="display_conversation_starters")
 def display_conversation_starters(situation):
-    st.subheader("Conversation Starters")
-    if situation:
-        with st.spinner('Generating conversation starters...'):
-            starters = generate_conversation_starters(situation)
-            
-            # Log conversation starters to LangChain
+st.subheader("Conversation Starters")
+if situation:
+with st.spinner('Generating conversation starters...'):
+starters = generate_conversation_starters(situation)
+
+# Log conversation starters to LangChain
+        run_id = smith_client.create_run(
+            run_type="conversation_starters",  # Add run_type argument
+            name="conversation_starters",
+            inputs={"situation": situation}
+        ).id
+        
+        smith_client.update_run(
+            run_id,
+            outputs={"starters": starters}
+        )
+        
+        st.write(starters)
+else:
+    st.warning("Please describe the situation in the sidebar to get conversation starters.")
+@traceable(name="display_communication_techniques")
+def display_communication_techniques(situation):
+st.subheader("Communication Techniques")
+if situation:
+try:
+with st.spinner('Generating communication techniques...'):
+messages = [
+{"role": "system", "content": "You are a parenting expert focused on effective communication strategies."},
+{"role": "user", "content": f"Provide specific communication techniques for this situation: {situation}"}
+]
+completion = openai.chat.completions.create(
+model="gpt-4",
+messages=messages
+)
+# Log communication techniques to LangChain
             run_id = smith_client.create_run(
-                name="conversation_starters",
+                run_type="communication_techniques",  # Add run_type argument
+                name="communication_techniques",
                 inputs={"situation": situation}
             ).id
             
             smith_client.update_run(
                 run_id,
-                outputs={"starters": starters}
+                outputs={"techniques": completion.choices[0].message.content}
             )
             
-            st.write(starters)
-    else:
-        st.warning("Please describe the situation in the sidebar to get conversation starters.")
-
-@traceable(name="display_communication_techniques")
-def display_communication_techniques(situation):
-    st.subheader("Communication Techniques")
-    if situation:
-        try:
-            with st.spinner('Generating communication techniques...'):
-                messages = [
-                    {"role": "system", "content": "You are a parenting expert focused on effective communication strategies."},
-                    {"role": "user", "content": f"Provide specific communication techniques for this situation: {situation}"}
-                ]
-                completion = openai.chat.completions.create(
-                    model="gpt-4",
-                    messages=messages
-                )
-
-                # Log communication techniques to LangChain
-                run_id = smith_client.create_run(
-                    name="communication_techniques",
-                    inputs={"situation": situation}
-                ).id
-                
-                smith_client.update_run(
-                    run_id,
-                    outputs={"techniques": completion.choices[0].message.content}
-                )
-                
-                st.markdown(completion.choices[0].message.content)
-        except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
-    else:
-        st.warning("Please describe the situation in the sidebar to get communication techniques.")
-
-if __name__ == "__main__":
-    main()
+            st.markdown(completion.choices[0].message.content)
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+else:
+    st.warning("Please describe the situation in the sidebar to get communication techniques.")
+if name == "main":
+main()
