@@ -56,6 +56,12 @@ os.environ["LANGCHAIN_TRACING_V2"] = 'true'
 # Initialize LangSmith Client
 smith_client = Client()
 
+# Debug flag
+DEBUG = False
+
+# Page configuration
+st.set_page_config(layout="wide", page_title="Parenting Support Bot")
+
 # Strategy explanations
 STRATEGY_EXPLANATIONS = {
     "Active Listening": "Active Listening involves fully focusing on, understanding, and remembering what your child is saying. This helps them feel heard and valued.",
@@ -64,11 +70,15 @@ STRATEGY_EXPLANATIONS = {
     "Reflective Questioning": "Reflective Questioning uses open-ended questions to help children think deeper and express themselves. For example: 'What do you think about...?'"
 }
 
+# Define reflection questions
+REFLECTION_QUESTIONS = [
+    "How effective was the strategy you used in this interaction?",
+    "What did you learn about your child's perspective?",
+    "What would you do differently next time?",
+]
+
 # Database setup
 DATABASE_URL = "sqlite:///parenting_app.db"
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
 
 class Reflection(Base):
     __tablename__ = "reflections"
