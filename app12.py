@@ -58,6 +58,29 @@ os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 # Initialize LangSmith Client
 smith_client = Client()
 
+# LangSmith Helper Functions
+def create_langsmith_run(name, inputs, fallback_id=None):
+    """Helper function to create LangSmith runs with error handling"""
+    try:
+        run = smith_client.create_run(
+            run_type="chain",
+            name=name,
+            inputs=inputs
+        )
+        return run.id if run else fallback_id
+    except Exception as e:
+        print(f"Error creating LangSmith run: {e}")
+        return fallback_id
+
+def update_langsmith_run(run_id, outputs):
+    """Helper function to update LangSmith runs with error handling"""
+    if not run_id:
+        return
+    try:
+        smith_client.update_run(run_id, outputs=outputs)
+    except Exception as e:
+        print(f"Error updating LangSmith run: {e}")
+
 # Strategy explanations
 STRATEGY_EXPLANATIONS = {
     "Active Listening": "👂 Active Listening involves fully focusing on, understanding, and remembering what your child is saying. This helps them feel heard and valued.",
@@ -207,6 +230,13 @@ def save_reflection(user_id, reflection_type, content):
         db.commit()
         db.refresh(db_reflection)
         print(f"Saved reflection for user {user_id}: {reflection_type}")
+        
+        # Try to update LangSmith with reflection data
+        if st.session_state.get('run_id'):
+            update_langsmith_run(
+                st.session_state['run_id'],
+                {"reflection_saved": content}
+            )
         return True
     except Exception as e:
         print(f"Error saving reflection: {str(e)}")
@@ -287,7 +317,6 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
         Parent's response to react to: {parent_response}"""}
     ]
 
-    # Add LangChain run tracking
     try:
         completion = openai.chat.completions.create(
             model="gpt-4",
@@ -297,23 +326,23 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
         )
         response = completion.choices[0].message.content.strip()
         
-        # Store run ID for reflection linking
+        # Create or update LangSmith run
         if 'run_id' not in st.session_state:
-            st.session_state['run_id'] = smith_client.create_run(
-                run_type="chain",  # Added required parameter
-                name="parenting_conversation",
+            run_id = create_langsmith_run(
+                name="child_response",
                 inputs={
                     "child_age": child_age,
                     "situation": situation,
                     "mood": mood,
                     "strategy": strategy
-                }
-            ).id
+                },
+                fallback_id=str(random.randint(1000, 9999))
+            )
+            st.session_state['run_id'] = run_id
         
-        # Log the interaction
-        smith_client.update_run(
+        update_langsmith_run(
             st.session_state['run_id'],
-            outputs={
+            {
                 "parent_response": parent_response,
                 "child_response": response,
                 "strategy_used": strategy,
@@ -324,8 +353,8 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
         st.session_state['stored_responses'][response_key] = response
         return response
     except Exception as e:
-        print(f"Error in LangChain tracking: {e}")
-        return st.session_state['stored_responses'].get(response_key, "I don't know what to say...")
+        print(f"Error generating child response: {e}")
+        return "I don't know what to say..."
 
 def generate_conversation_starters(situation):
     prompt = f"""
@@ -375,21 +404,19 @@ def simulate_conversation_streamlit(name, child_age, situation):
         st.session_state['strategy'] = "Active Listening"
         st.session_state['simulation_id'] = random.randint(1000, 9999)
 
-        # Create initial LangChain run with required run_type
-        try:
-            st.session_state['run_id'] = smith_client.create_run(
-                run_type="chain",
-                name="parenting_conversation",
-                inputs={
-                    "parent_name": name,
-                    "child_name": child_name,
-                    "child_age": child_age,
-                    "situation": situation,
-                    "initial_strategy": "Active Listening"
-                }
-            ).id
-        except Exception as e:
-            print(f"Error creating initial LangChain run: {e}")
+        # Create initial LangChain run with fallback
+        run_id = create_langsmith_run(
+            name="parenting_conversation",
+            inputs={
+                "parent_name": name,
+                "child_name": child_name,
+                "child_age": child_age,
+                "situation": situation,
+                "initial_strategy": "Active Listening"
+            },
+            fallback_id=str(st.session_state['simulation_id'])
+        )
+        st.session_state['run_id'] = run_id
 
     # Display strategy selection using more interactive buttons
     st.write("Choose your communication strategy:")
@@ -403,13 +430,10 @@ def simulate_conversation_streamlit(name, child_age, situation):
                 type="primary" if strategy == st.session_state['strategy'] else "secondary"
             ):
                 st.session_state['strategy'] = strategy
-                try:
-                    smith_client.update_run(
-                        st.session_state['run_id'],
-                        outputs={"strategy_change": strategy}
-                    )
-                except Exception as e:
-                    print(f"Error logging strategy change: {e}")
+                update_langsmith_run(
+                    st.session_state['run_id'],
+                    {"strategy_change": strategy}
+                )
                 st.rerun()
     
     # Display current strategy explanation
@@ -451,20 +475,17 @@ def simulate_conversation_streamlit(name, child_age, situation):
             "strategy_used": st.session_state['strategy']
         })
         
-        try:
-            # Log parent's response to LangChain
-            smith_client.update_run(
-                st.session_state['run_id'],
-                outputs={
-                    f"turn_{st.session_state['turn_count']}_parent": {
-                        "content": user_input,
-                        "strategy": st.session_state['strategy'],
-                        "feedback": feedback
-                    }
+        # Log parent's response to LangChain
+        update_langsmith_run(
+            st.session_state['run_id'],
+            {
+                f"turn_{st.session_state['turn_count']}_parent": {
+                    "content": user_input,
+                    "strategy": st.session_state['strategy'],
+                    "feedback": feedback
                 }
-            )
-        except Exception as e:
-            print(f"Error logging parent response: {e}")
+            }
+        )
         
         # Generate child's response
         child_response = generate_child_response(
@@ -484,25 +505,22 @@ def simulate_conversation_streamlit(name, child_age, situation):
         
         if random.random() < 0.3:  # 30% chance to change mood
             st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
-            try:
-                smith_client.update_run(
-                    st.session_state['run_id'],
-                    outputs={"mood_change": st.session_state['child_mood']}
-                )
-            except Exception as e:
-                print(f"Error logging mood change: {e}")
+            update_langsmith_run(
+                st.session_state['run_id'],
+                {"mood_change": st.session_state['child_mood']}
+            )
         
         st.session_state['turn_count'] += 1
         st.rerun()
     
     if end_button:
-        try:
-            smith_client.update_run(
-                st.session_state['run_id'],
-                outputs={"conversation_ended": True, "total_turns": st.session_state['turn_count']}
-            )
-        except Exception as e:
-            print(f"Error logging conversation end: {e}")
+        update_langsmith_run(
+            st.session_state['run_id'],
+            {
+                "conversation_ended": True, 
+                "total_turns": st.session_state['turn_count']
+            }
+        )
         end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
 
 def end_simulation(conversation_history, child_age, strategy):
@@ -555,14 +573,10 @@ def end_simulation(conversation_history, child_age, strategy):
             }
         }
         
-        try:
-            # Log reflection to LangChain
-            smith_client.update_run(
-                st.session_state['run_id'],
-                outputs={"final_reflection": reflection_data}
-            )
-        except Exception as e:
-            print(f"Error logging reflection to LangChain: {e}")
+        update_langsmith_run(
+            st.session_state['run_id'],
+            {"final_reflection": reflection_data}
+        )
         
         success = save_reflection(user_id, 'end_simulation', reflection_data)
         
@@ -607,6 +621,8 @@ def main():
             st.success("Information saved!")
             if 'conversation_history' in st.session_state:
                 st.session_state.pop('conversation_history')
+            if 'run_id' in st.session_state:
+                st.session_state.pop('run_id')
             st.rerun()
     
     st.title("Parenting Support Bot")
@@ -678,35 +694,31 @@ def display_saved_reflections(user_id):
 def display_advice(parent_name, child_age, situation):
     st.subheader("Parenting Advice")
     if situation:
-        user_input = f"Parent: {parent_name}\nChild's age: {child_age}\nSituation: {situation}\nGoal: Get advice"
         try:
             with st.spinner('Processing your request...'):
-                messages = [
-                    {"role": "system", "content": "You are a parenting expert providing advice based on research-backed strategies."},
-                    {"role": "user", "content": user_input}
-                ]
-                completion = openai.chat.completions.create(
-                    model="gpt-4",
-                    messages=messages
-                )
-
-                # Log advice request to LangChain
-                run_id = smith_client.create_run(
-                    run_type="chain",
+                run_id = create_langsmith_run(
                     name="parenting_advice",
                     inputs={
                         "parent_name": parent_name,
                         "child_age": child_age,
                         "situation": situation
-                    }
-                ).id
-                
-                smith_client.update_run(
-                    run_id,
-                    outputs={"advice": completion.choices[0].message.content}
+                    },
+                    fallback_id=str(random.randint(1000, 9999))
+                )
+
+                messages = [
+                    {"role": "system", "content": "You are a parenting expert providing advice based on research-backed strategies."},
+                    {"role": "user", "content": f"Parent: {parent_name}\nChild's age: {child_age}\nSituation: {situation}\nGoal: Get advice"}
+                ]
+                completion = openai.chat.completions.create(
+                    model="gpt-4",
+                    messages=messages
                 )
                 
-                st.markdown(completion.choices[0].message.content)
+                response = completion.choices[0].message.content
+                
+                update_langsmith_run(run_id, {"advice": response})
+                st.markdown(response)
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
     else:
@@ -718,21 +730,15 @@ def display_conversation_starters(situation):
     if situation:
         try:
             with st.spinner('Generating conversation starters...'):
-                # Create LangChain run first
-                run_id = smith_client.create_run(
-                    run_type="chain",
+                run_id = create_langsmith_run(
                     name="conversation_starters",
-                    inputs={"situation": situation}
-                ).id
+                    inputs={"situation": situation},
+                    fallback_id=str(random.randint(1000, 9999))
+                )
                 
                 starters = generate_conversation_starters(situation)
                 
-                # Update run with results
-                smith_client.update_run(
-                    run_id,
-                    outputs={"starters": starters}
-                )
-                
+                update_langsmith_run(run_id, {"starters": starters})
                 st.write(starters)
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
@@ -745,12 +751,11 @@ def display_communication_techniques(situation):
     if situation:
         try:
             with st.spinner('Generating communication techniques...'):
-                # Create LangChain run first
-                run_id = smith_client.create_run(
-                    run_type="chain",
+                run_id = create_langsmith_run(
                     name="communication_techniques",
-                    inputs={"situation": situation}
-                ).id
+                    inputs={"situation": situation},
+                    fallback_id=str(random.randint(1000, 9999))
+                )
                 
                 messages = [
                     {"role": "system", "content": "You are a parenting expert focused on effective communication strategies."},
@@ -761,13 +766,10 @@ def display_communication_techniques(situation):
                     messages=messages
                 )
                 
-                # Update run with results
-                smith_client.update_run(
-                    run_id,
-                    outputs={"techniques": completion.choices[0].message.content}
-                )
+                response = completion.choices[0].message.content
+                update_langsmith_run(run_id, {"techniques": response})
                 
-                st.markdown(completion.choices[0].message.content)
+                st.markdown(response)
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
     else:
