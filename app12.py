@@ -379,6 +379,7 @@ def simulate_conversation_streamlit(name, child_age, situation):
         try:
             st.session_state['run_id'] = smith_client.create_run(
                 name="parenting_conversation",
+                run_type="conversation",  
                 inputs={
                     "parent_name": name,
                     "child_name": child_name,
@@ -695,6 +696,7 @@ def display_advice(parent_name, child_age, situation):
                 # Log advice request to LangChain
                 run_id = smith_client.create_run(
                     name="parenting_advice",
+                    run_type="advice",  
                     inputs={
                         "parent_name": parent_name,
                         "child_age": child_age,
@@ -723,6 +725,7 @@ def display_conversation_starters(situation):
             # Log conversation starters to LangChain
             run_id = smith_client.create_run(
                 name="conversation_starters",
+                run_type="starters",  
                 inputs={"situation": situation}
             ).id
             
@@ -753,6 +756,7 @@ def display_communication_techniques(situation):
                 # Log communication techniques to LangChain
                 run_id = smith_client.create_run(
                     name="communication_techniques",
+                    run_type="techniques",  
                     inputs={"situation": situation}
                 ).id
                 
