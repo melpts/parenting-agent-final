@@ -56,12 +56,6 @@ os.environ["LANGCHAIN_TRACING_V2"] = 'true'
 # Initialize LangSmith Client
 smith_client = Client()
 
-# Debug flag
-DEBUG = False
-
-# Page configuration
-st.set_page_config(layout="wide", page_title="Parenting Support Bot")
-
 # Strategy explanations
 STRATEGY_EXPLANATIONS = {
     "Active Listening": "Active Listening involves fully focusing on, understanding, and remembering what your child is saying. This helps them feel heard and valued.",
@@ -79,7 +73,11 @@ REFLECTION_QUESTIONS = [
 
 # Database setup
 DATABASE_URL = "sqlite:///parenting_app.db"
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
+# Define Reflection model
 class Reflection(Base):
     __tablename__ = "reflections"
     id = Column(Integer, primary_key=True, index=True)
@@ -89,20 +87,10 @@ class Reflection(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     langsmith_run_id = Column(String)
 
+# Create tables
 Base.metadata.create_all(bind=engine)
 
-def setup_database():
-    conn = sqlite3.connect('user_queries.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS queries
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  timestamp TEXT,
-                  user_query TEXT,
-                  bot_response TEXT)''')
-    conn.commit()
-    conn.close()
-
-# Initialize session state variables
+# Initialize session state
 if 'run_id' not in st.session_state: 
     st.session_state['run_id'] = None
 if 'agentState' not in st.session_state: 
@@ -118,15 +106,52 @@ if 'simulation_ended' not in st.session_state:
 if 'stored_responses' not in st.session_state:
     st.session_state['stored_responses'] = {}
 
+# Setup chat memory
 msgs = StreamlitChatMessageHistory(key="langchain_messages")
 memory = ConversationBufferMemory(memory_key="history", chat_memory=msgs)
 
-# Define reflection questions
-REFLECTION_QUESTIONS = [
-    "How effective was the strategy you used in this interaction?",
-    "What did you learn about your child's perspective?",
-    "What would you do differently next time?",
-]
+def setup_database():
+    conn = sqlite3.connect('user_queries.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS queries
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  timestamp TEXT,
+                  user_query TEXT,
+                  bot_response TEXT)''')
+    conn.commit()
+    conn.close()
+
+setup_database()
+
+def save_reflection(user_id, reflection_type, content):
+    try:
+        db = SessionLocal()
+        db_reflection = Reflection(
+            user_id=user_id,
+            type=reflection_type,
+            content=json.dumps(content),
+            langsmith_run_id=st.session_state.get('run_id')
+        )
+        db.add(db_reflection)
+        db.commit()
+        db.refresh(db_reflection)
+        return True
+    except Exception as e:
+        print(f"Error saving reflection: {str(e)}")
+        return False
+    finally:
+        db.close()
+
+def load_reflections(user_id):
+    db = SessionLocal()
+    try:
+        reflections = db.query(Reflection).filter(Reflection.user_id == user_id).order_by(Reflection.timestamp.desc()).all()
+        return reflections
+    except Exception as e:
+        print(f"Error loading reflections: {str(e)}")
+        return []
+    finally:
+        db.close()
 
 def provide_realtime_feedback(parent_response, strategy):
     feedback_prompts = {
@@ -164,11 +189,31 @@ def provide_realtime_feedback(parent_response, strategy):
     
     return strategy_feedback
 
+def generate_conversation_starters(situation):
+    prompt = f"""
+    SYSTEM
+    Use the provided citations delimited by triple quotes to answer questions. If the answer cannot be found in the citations, write "I could not find an answer."
+    USER
+    Academic Citations:
+    {CONVERSATION_STARTER_CITATIONS}
+
+    Website Resources:
+    {WEBSITE_CITATIONS}
+
+    Question: Provide conversation starters for the following situation with a child: {situation}
+    """
+    completion = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    return completion.choices[0].message.content.strip()
+
 def generate_child_response(conversation_history, child_age, situation, mood, strategy, parent_response):
-    # Create a unique key for this response
     response_key = f"{parent_response}_{child_age}_{mood}_{strategy}"
     
-    # Check if we already have a response for this combination
     if response_key in st.session_state['stored_responses']:
         return st.session_state['stored_responses'][response_key]
     
@@ -200,14 +245,11 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
     )
     response = completion.choices[0].message.content.strip()
     
-    # Store the response
     st.session_state['stored_responses'][response_key] = response
-    
     return response
-
 def simulate_conversation_streamlit(name, child_age, situation):
     name = st.session_state.get('parent_name', name)
-    child_name = st.session_state.get('child_name', '')  # Add child's name
+    child_name = st.session_state.get('child_name', '')
     child_age = st.session_state.get('child_age', child_age)
     situation = st.session_state.get('situation', situation)
     
@@ -312,15 +354,7 @@ def simulate_conversation_streamlit(name, child_age, situation):
                     "id": len(st.session_state['conversation_history'])
                 })
                 
-                if prompt_emotion_identification():
-                    emotion = st.radio(
-                        "What emotion do you think your child is feeling right now?",
-                        ["Happy", "Sad", "Angry", "Scared", "Confused"],
-                        key=f"emotion_{st.session_state['simulation_id']}_{st.session_state['turn_count']}"
-                    )
-                    st.write(f"You identified that your child might be feeling {emotion}. Keep this in mind as you respond.")
-                
-                if random.random() < 0.3:
+                if random.random() < 0.3:  # 30% chance to change mood
                     st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
                 
                 st.session_state['turn_count'] += 1
@@ -345,6 +379,52 @@ def simulate_conversation_streamlit(name, child_age, situation):
     with tab2:
         display_reflections(name if name else "Anonymous")
 
+def display_reflections(user_id):
+    st.subheader("Your Reflections")
+    
+    try:
+        reflections = load_reflections(user_id)
+        
+        pause_reflections = [r for r in reflections if r.type == 'pause']
+        end_simulation_reflections = [r for r in reflections if r.type == 'end_simulation']
+        
+        if pause_reflections:
+            st.write("Pause and Reflect Entries:")
+            for i, reflection in enumerate(pause_reflections[:5], 1):
+                content = json.loads(reflection.content)
+                with st.expander(f"Reflection {i} - {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
+                    st.text_area(
+                        "Your thoughts",
+                        content['content'],
+                        height=100,
+                        key=f"saved_pause_reflection_{reflection.id}",
+                        disabled=True
+                    )
+            if len(pause_reflections) > 5:
+                st.info(f"Showing the last 5 of {len(pause_reflections)} pause reflections.")
+        else:
+            st.info("No pause reflections recorded yet.")
+
+        if end_simulation_reflections:
+            st.write("End-of-Simulation Reflections:")
+            for reflection in end_simulation_reflections[:3]:
+                with st.expander(f"Simulation Reflection - {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
+                    content = json.loads(reflection.content)
+                    for question, answer in content.items():
+                        if answer.strip():
+                            st.text_area(
+                                question,
+                                answer,
+                                height=100,
+                                key=f"saved_answer_{reflection.id}_{question}",
+                                disabled=True
+                            )
+            if len(end_simulation_reflections) > 3:
+                st.info(f"Showing the last 3 of {len(end_simulation_reflections)} end-of-simulation reflections.")
+        else:
+            st.info("No end-of-simulation reflections recorded yet.")
+    except Exception as e:
+        st.error(f"An error occurred while loading reflections: {str(e)}")
 def main():
     st.set_page_config(layout="wide", page_title="Parenting Support Bot")
     
@@ -353,7 +433,7 @@ def main():
         
         with st.form(key='parent_info_form'):
             parent_name = st.text_input("Your Name")
-            child_name = st.text_input("Child's Name")  # Added child name field
+            child_name = st.text_input("Child's Name")
             
             # Updated age ranges
             age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
@@ -410,7 +490,6 @@ def end_simulation(conversation_history, child_age, strategy):
         save_reflection(st.session_state.get('parent_name', 'Anonymous'), 'end_simulation', current_reflection)
         st.success("Reflection saved successfully.")
         
-        # Provide constructive feedback based on the reflection
         feedback_message = f"""
         Thank you for completing this simulation using the {strategy} strategy. 
         Your reflections show thoughtful consideration of the interaction.
@@ -436,54 +515,55 @@ def reset_simulation():
     st.session_state['strategy'] = "Active Listening"
     st.session_state['simulation_ended'] = False
     st.session_state['simulation_id'] = random.randint(1000, 9999)
-    st.session_state['stored_responses'].clear()  # Clear stored responses for new simulation
+    st.session_state['stored_responses'].clear()
 
-def display_reflections(user_id):
-    st.subheader("Your Reflections")
-    
-    try:
-        reflections = load_reflections(user_id)
-        
-        pause_reflections = [r for r in reflections if r.type == 'pause']
-        end_simulation_reflections = [r for r in reflections if r.type == 'end_simulation']
-        
-        if pause_reflections:
-            st.write("Pause and Reflect Entries:")
-            for i, reflection in enumerate(pause_reflections[:5], 1):
-                content = json.loads(reflection.content)
-                with st.expander(f"Reflection {i} - {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
-                    st.text_area(
-                        "Your thoughts",
-                        content['content'],
-                        height=100,
-                        key=f"saved_pause_reflection_{reflection.id}",
-                        disabled=True
-                    )
-            if len(pause_reflections) > 5:
-                st.info(f"Showing the last 5 of {len(pause_reflections)} pause reflections.")
-        else:
-            st.info("No pause reflections recorded yet.")
+def display_advice(parent_name, child_age, situation):
+    st.subheader("Parenting Advice")
+    if situation:
+        user_input = f"Parent: {parent_name}\nChild's age: {child_age}\nSituation: {situation}\nGoal: Get advice"
+        try:
+            with st.spinner('Processing your request...'):
+                messages = [
+                    {"role": "system", "content": "You are a parenting expert providing advice based on research-backed strategies."},
+                    {"role": "user", "content": user_input}
+                ]
+                completion = openai.chat.completions.create(
+                    model="gpt-4",
+                    messages=messages
+                )
+                st.markdown(completion.choices[0].message.content)
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+    else:
+        st.warning("Please describe the situation in the sidebar to get advice.")
 
-        if end_simulation_reflections:
-            st.write("End-of-Simulation Reflections:")
-            for reflection in end_simulation_reflections[:3]:
-                with st.expander(f"Simulation Reflection - {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
-                    content = json.loads(reflection.content)
-                    for question, answer in content.items():
-                        if answer.strip():
-                            st.text_area(
-                                question,
-                                answer,
-                                height=100,
-                                key=f"saved_answer_{reflection.id}_{question}",
-                                disabled=True
-                            )
-            if len(end_simulation_reflections) > 3:
-                st.info(f"Showing the last 3 of {len(end_simulation_reflections)} end-of-simulation reflections.")
-        else:
-            st.info("No end-of-simulation reflections recorded yet.")
-    except Exception as e:
-        st.error(f"An error occurred while loading reflections: {str(e)}")
+def display_conversation_starters(situation):
+    st.subheader("Conversation Starters")
+    if situation:
+        with st.spinner('Generating conversation starters...'):
+            starters = generate_conversation_starters(situation)
+        st.write(starters)
+    else:
+        st.warning("Please describe the situation in the sidebar to get conversation starters.")
+
+def display_communication_techniques(situation):
+    st.subheader("Communication Techniques")
+    if situation:
+        try:
+            with st.spinner('Generating communication techniques...'):
+                messages = [
+                    {"role": "system", "content": "You are a parenting expert focused on effective communication strategies."},
+                    {"role": "user", "content": f"Provide specific communication techniques for this situation: {situation}"}
+                ]
+                completion = openai.chat.completions.create(
+                    model="gpt-4",
+                    messages=messages
+                )
+                st.markdown(completion.choices[0].message.content)
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+    else:
+        st.warning("Please describe the situation in the sidebar to get communication techniques.")
 
 if __name__ == "__main__":
     main()
