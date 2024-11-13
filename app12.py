@@ -28,6 +28,10 @@ from langsmith import Client
 from langsmith.run_helpers import traceable
 from langsmith.run_helpers import get_current_run_tree
 
+
+# Force the sidebar to be expanded by default
+st.set_page_config(initial_sidebar_state="expanded")
+
 # Load environment variables
 from dotenv import load_dotenv
 
