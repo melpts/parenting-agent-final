@@ -389,7 +389,7 @@ def show_info_screen():
         parent_name = st.text_input("Your Name")
         child_name = st.text_input("Child's Name")
         
-        age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
+        age_ranges = ["4-6 years", "7-10 years"]
         child_age = st.selectbox("Child's Age Range", age_ranges)
         
         situation = st.text_area("Describe the situation you'd like help with")
