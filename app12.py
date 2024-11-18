@@ -67,7 +67,6 @@ smith_client = Client()
 
 # LangSmith Helper Functions
 def create_langsmith_run(name, inputs, fallback_id=None):
-    """Helper function to create LangSmith runs with error handling"""
     try:
         run = smith_client.create_run(
             run_type="chain",
@@ -80,7 +79,6 @@ def create_langsmith_run(name, inputs, fallback_id=None):
         return fallback_id
 
 def update_langsmith_run(run_id, outputs):
-    """Helper function to update LangSmith runs with error handling"""
     if not run_id:
         return
     try:
@@ -205,6 +203,7 @@ if 'stored_responses' not in st.session_state:
 # Setup chat memory
 msgs = StreamlitChatMessageHistory(key="langchain_messages")
 memory = ConversationBufferMemory(memory_key="history", chat_memory=msgs)
+
 def setup_database():
     conn = sqlite3.connect('user_queries.db')
     c = conn.cursor()
@@ -237,7 +236,6 @@ def save_reflection(user_id, reflection_type, content):
         db.refresh(db_reflection)
         print(f"Saved reflection for user {user_id}: {reflection_type}")
         
-        # Try to update LangSmith with reflection data
         if st.session_state.get('run_id'):
             update_langsmith_run(
                 st.session_state['run_id'],
@@ -332,7 +330,6 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
         )
         response = completion.choices[0].message.content.strip()
         
-        # Create or update LangSmith run
         if 'run_id' not in st.session_state:
             run_id = create_langsmith_run(
                 name="child_response",
@@ -383,6 +380,31 @@ def generate_conversation_starters(situation):
         ]
     )
     return completion.choices[0].message.content.strip()
+
+def show_info_screen():
+    st.title("Welcome to Parenting Support Bot")
+    
+    with st.form(key='parent_info_form'):
+        st.subheader("Please Tell Us About You")
+        parent_name = st.text_input("Your Name")
+        child_name = st.text_input("Child's Name")
+        
+        age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
+        child_age = st.selectbox("Child's Age Range", age_ranges)
+        
+        situation = st.text_area("Describe the situation you'd like help with")
+        submit_button = st.form_submit_button("Start")
+        
+        if submit_button and parent_name and child_name and situation:
+            st.session_state['parent_name'] = parent_name
+            st.session_state['child_name'] = child_name
+            st.session_state['child_age'] = child_age
+            st.session_state['situation'] = situation
+            st.session_state['info_submitted'] = True
+            st.rerun()
+        elif submit_button:
+            st.error("Please fill in all fields")
+
 @traceable(name="simulate_conversation")
 def simulate_conversation_streamlit(name, child_age, situation):
     name = st.session_state.get('parent_name', name)
@@ -410,7 +432,6 @@ def simulate_conversation_streamlit(name, child_age, situation):
         st.session_state['strategy'] = "Active Listening"
         st.session_state['simulation_id'] = random.randint(1000, 9999)
 
-        # Create initial LangChain run with fallback
         run_id = create_langsmith_run(
             name="parenting_conversation",
             inputs={
@@ -481,7 +502,6 @@ def simulate_conversation_streamlit(name, child_age, situation):
             "strategy_used": st.session_state['strategy']
         })
         
-        # Log parent's response to LangChain
         update_langsmith_run(
             st.session_state['run_id'],
             {
@@ -493,7 +513,6 @@ def simulate_conversation_streamlit(name, child_age, situation):
             }
         )
         
-        # Generate child's response
         child_response = generate_child_response(
             st.session_state['conversation_history'],
             child_age,
@@ -528,7 +547,6 @@ def simulate_conversation_streamlit(name, child_age, situation):
             }
         )
         end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
-
 def end_simulation(conversation_history, child_age, strategy):
     st.session_state['simulation_ended'] = True
     st.write("The simulation has ended.")
@@ -728,57 +746,45 @@ def display_saved_reflections(user_id):
                 st.error(f"Error displaying reflection: {str(e)}")
 
 def main():
-    with st.sidebar:
-        st.subheader("Parent Information")
+    if 'info_submitted' not in st.session_state:
+        st.session_state['info_submitted'] = False
         
-        with st.form(key='parent_info_form'):
-            parent_name = st.text_input("Your Name")
-            child_name = st.text_input("Child's Name")
+    if not st.session_state['info_submitted']:
+        show_info_screen()
+    else:
+        with st.sidebar:
+            st.subheader("Current Information")
+            st.write(f"Parent: {st.session_state['parent_name']}")
+            st.write(f"Child: {st.session_state['child_name']}")
+            st.write(f"Age: {st.session_state['child_age']}")
+            st.write(f"Situation: {st.session_state['situation']}")
             
-            age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
-            child_age = st.selectbox("Child's Age Range", age_ranges)
-            
-            situation = st.text_area("Describe the situation")
-            submit_button = st.form_submit_button("Save Information")
+            if st.button("Edit Information"):
+                st.session_state['info_submitted'] = False
+                if 'conversation_history' in st.session_state:
+                    st.session_state.pop('conversation_history')
+                if 'run_id' in st.session_state:
+                    st.session_state.pop('run_id')
+                st.rerun()
         
-        if submit_button:
-            st.session_state['parent_name'] = parent_name
-            st.session_state['child_name'] = child_name
-            st.session_state['child_age'] = child_age
-            st.session_state['situation'] = situation
-            st.success("Information saved!")
-            if 'conversation_history' in st.session_state:
-                st.session_state.pop('conversation_history')
-            if 'run_id' in st.session_state:
-                st.session_state.pop('run_id')
-            st.rerun()
-    
-    st.title("Parenting Support Bot")
+        st.title("Parenting Support Bot")
 
-    selected = st.radio(
-        "Choose an option:",
-        ["Advice", "Conversation Starters", "Communication Techniques", "Role-Play Simulation", "View Reflections"],
-        horizontal=True
-    )
+        selected = st.radio(
+            "Choose an option:",
+            ["Advice", "Conversation Starters", "Communication Techniques", "Role-Play Simulation", "View Reflections"],
+            horizontal=True
+        )
 
-    parent_name = st.session_state.get('parent_name', '')
-    child_name = st.session_state.get('child_name', '')
-    child_age = st.session_state.get('child_age', '3-5 years')
-    situation = st.session_state.get('situation', '')
-
-    if selected == "Advice":
-        display_advice(parent_name, child_age, situation)
-    elif selected == "Conversation Starters":
-        display_conversation_starters(situation)
-    elif selected == "Communication Techniques":
-        display_communication_techniques(situation)
-    elif selected == "Role-Play Simulation":
-        if not situation:
-            st.warning("Please describe the situation in the sidebar before starting the simulation.")
-        else:
-            simulate_conversation_streamlit(parent_name, child_age, situation)
-    elif selected == "View Reflections":
-        display_saved_reflections(parent_name)
+        if selected == "Advice":
+            display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+        elif selected == "Conversation Starters":
+            display_conversation_starters(st.session_state['situation'])
+        elif selected == "Communication Techniques":
+            display_communication_techniques(st.session_state['situation'])
+        elif selected == "Role-Play Simulation":
+            simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+        elif selected == "View Reflections":
+            display_saved_reflections(st.session_state['parent_name'])
 
 if __name__ == "__main__":
     main()
