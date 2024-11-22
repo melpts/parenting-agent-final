@@ -1,14 +1,9 @@
 import streamlit as st
 
 st.set_page_config(
-    layout="wide",
-    page_title="Parenting Support Bot", 
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': None
-    }
+    layout="wide", 
+    page_title="Parenting Support Bot",
+    initial_sidebar_state="expanded"
 )
 
 #custom CSS 
