@@ -6,128 +6,75 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Add custom CSS for improved typography and spacing
+#custom CSS 
 st.markdown("""
     <style>
     /* General Typography */
     body {
-        font-family: 'Arial', sans-serif;
+        font-family: 'Inter', sans-serif;
+        color: #1a1a1a;
     }
+
     h1, h2, h3, .section-header {
         font-family: 'Roboto', sans-serif;
+        color: #2563eb;
     }
+
     .main-header {
-        font-size: 2em;
-        font-weight: bold;
-        margin-bottom: 1em;
+        font-size: 2.5em;
+        font-weight: 800;
+        margin-bottom: 1.5em;
+        color: #2563eb;
     }
+
     .section-header {
-        font-size: 1.5em;
-        font-weight: bold;
-        margin: 1em 0;
+        font-size: 2em;
+        font-weight: 700;
+        margin: 1.2em 0;
+        border-bottom: 3px solid #60a5fa;
+        padding-bottom: 0.5em;
     }
-    .subsection-header {
-        font-size: 1.2em;
-        font-weight: bold;
-        margin: 0.8em 0;
-    }
+
     .description-text {
-        font-size: 1em;
-        line-height: 1.6;
-        margin: 1em 0;
-    }
-
-    /* Sidebar Information Section */
-    .info-section {
-        background-color: #f9f9f9;
-        padding: 1em;
-        border-radius: 0.5em;
-        margin: 1em 0;
-        border: 1px solid #dcdcdc;
-    }
-
-    /* Styling for Situation Text */
-    .situation-text {
-        font-size: 1.2em;
+        font-size: 1.1em;
         line-height: 1.8;
-        margin: 1em 0;
-        padding: 1em;
-        background-color: #e7f3f3;
-        border: 1px solid #d1e7e7;
-        border-radius: 0.5em;
+        margin: 1.2em 0;
     }
 
     /* Button Styling */
     div.stButton > button {
-        width: 100%;
-        height: 45px;
-        font-size: 0.9em;
-        margin: 5px 0;
-        background-color: #6c757d;
+        height: 3em;
+        font-size: 1em;
+        font-weight: 500;
+        background-color: #2563eb;
         color: white;
-        border-radius: 5px;
+        border-radius: 0.5em;
+        transition: all 0.2s ease;
     }
 
-    /* Text Area Styling */
-    .stTextArea > div > div > textarea {
-        font-size: 1em;
-        line-height: 1.5;
-        padding: 10px;
-        border: 1px solid #ced4da;
-        border-radius: 5px;
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
 
     /* Message Bubbles */
     .message-parent, .message-child {
-        padding: 1em;
-        border-radius: 0.5em;
-        margin: 0.5em 0;
-        border: 1px solid #ddd;
+        padding: 1.2em;
+        border-radius: 1em;
+        margin: 0.8em 0;
+        max-width: 80%;
     }
+
     .message-parent {
-        background-color: #f8f9fa;
+        background-color: #60a5fa;
+        color: white;
+        margin-left: auto;
     }
+
     .message-child {
-        background-color: #eef6fc;
-    }
-
-    /* Strategy Explanation Section */
-    .strategy-explanation {
-        background-color: #f9f9f9;
-        border-left: 4px solid #5cb85c;
-        padding: 1em;
-        border-radius: 0.5em;
-        line-height: 1.5;
-        margin: 0.5em 0;
-    }
-
-    /* Radio Button Styling */
-    .stRadio > div {
-        gap: 0.5em;
-        flex-wrap: wrap;
-    }
-    .stRadio > div > label {
-        padding: 0.5em 1em;
-        border-radius: 0.5em;
-        background-color: #f8f9fa;
-        flex: 1;
-        text-align: center;
-    }
-
-    /* Responsive Design */
-    @media (max-width: 768px) {
-        .main-header {
-            font-size: 1.8em;
-        }
-        .section-header {
-            font-size: 1.4em;
-        }
-        .description-text {
-            font-size: 0.9em;
-        }
-        div.stButton > button {
-            font-size: 0.9em;
-        }
+        background-color: #f3f4f6;
+        color: #1a1a1a;
+        margin-right: auto;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -231,27 +178,32 @@ def update_langsmith_run(run_id, outputs):
     except Exception as e:
         print(f"Error updating LangSmith run: {e}")
 
-# Strategy explanations with improved formatting
 STRATEGY_EXPLANATIONS = {
     "Active Listening": """
-        <div class='strategy-explanation'>
-            👂 <strong>Active Listening</strong><br>
-            Fully focus on, understand, and remember what your child is saying. 
-            This helps them feel heard and valued.
+        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
+            👂 <strong style='color: #2563eb; font-size: 1.2em;'>Active Listening</strong><br>
+            <p style='font-size: 1.1em; line-height: 1.8;'>
+                Fully focus on, understand, and remember what your child is saying. 
+                This helps them feel heard and valued.
+            </p>
         </div>
     """,
     "Positive Reinforcement": """
-        <div class='strategy-explanation'>
-            ⭐ <strong>Positive Reinforcement</strong><br>
-            Encourage desired behaviors through specific praise or rewards, 
-            helping build self-esteem and motivation.
+        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
+            ⭐ <strong style='color: #2563eb; font-size: 1.2em;'>Positive Reinforcement</strong><br>
+            <p style='font-size: 1.1em; line-height: 1.8;'>
+                Encourage desired behaviors through specific praise or rewards, 
+                helping build self-esteem and motivation.
+            </p>
         </div>
     """,
     "Reflective Questioning": """
-        <div class='strategy-explanation'>
-            ❓ <strong>Reflective Questioning</strong><br>
-            Use open-ended questions to help children think deeper and express themselves. 
-            For example: 'What do you think about...?'
+        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
+            ❓ <strong style='color: #2563eb; font-size: 1.2em;'>Reflective Questioning</strong><br>
+            <p style='font-size: 1.1em; line-height: 1.8;'>
+                Use open-ended questions to help children think deeper and express themselves. 
+                For example: 'What do you think about...?'
+            </p>
         </div>
     """
 }
@@ -549,15 +501,25 @@ def show_info_screen():
     
     with st.form(key='parent_info_form'):
         st.markdown("<h2 class='section-header'>Please Tell Us About You</h2>", unsafe_allow_html=True)
-        parent_name = st.text_input("Prolific ID")
-        child_name = st.text_input("Child's Name")
+        parent_name = st.text_input(
+            "Prolific ID",
+            placeholder="Enter your Prolific ID...",
+        )
+        child_name = st.text_input(
+            "Child's Name",
+            placeholder="Enter your child's name...",
+        )
         
         age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
         child_age = st.selectbox("Child's Age Range", age_ranges)
         
         st.markdown("<p class='description-text'>Describe the situation you'd like help with:</p>", 
                    unsafe_allow_html=True)
-        situation = st.text_area("", placeholder="Type your situation here...", height=120)
+        situation = st.text_area(
+            "",
+            placeholder="Type your situation here...",
+            height=120
+        )
         
         submit_button = st.form_submit_button("Start", use_container_width=True)
         
@@ -570,6 +532,7 @@ def show_info_screen():
             st.rerun()
         elif submit_button:
             st.error("Please fill in all fields")
+            
 @traceable(name="simulate_conversation")
 def simulate_conversation_streamlit(name, child_age, situation):
     name = st.session_state.get('parent_name', name)
@@ -1038,26 +1001,54 @@ def main():
 st.markdown("""
     <style>
     .info-section {
-        background-color: #f8f9fa;
-        padding: 1em;
-        border-radius: 0.5em;
+        background-color: #f3f4f6;
+        padding: 1.2em;
+        border-radius: 0.8em;
         margin: 1em 0;
+        border: 1px solid #60a5fa;
     }
+    
     .reflection-item {
-        margin: 1em 0;
-        line-height: 1.6;
+        margin: 1.2em 0;
+        line-height: 1.8;
+        padding: 1em;
+        background-color: #f3f4f6;
+        border-left: 4px solid #2563eb;
+        border-radius: 0.5em;
     }
+    
     .stRadio > div {
         display: flex;
         gap: 1em;
         flex-wrap: wrap;
     }
+    
     .stRadio > div > label {
-        padding: 0.5em 1em;
+        padding: 0.8em 1.2em;
         border-radius: 0.5em;
-        background-color: #f8f9fa;
+        background-color: #f3f4f6;
         flex: 1;
         text-align: center;
+        transition: all 0.2s ease;
+    }
+    
+    .stRadio > div > label:hover {
+        background-color: #60a5fa;
+        color: white;
+    }
+    
+    /* Textarea styling */
+    .stTextArea > div > div > textarea {
+        font-size: 1.1em;
+        line-height: 1.6;
+        padding: 1em;
+        border: 2px solid #f3f4f6;
+        border-radius: 0.5em;
+    }
+    
+    .stTextArea > div > div > textarea:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
     }
     </style>
 """, unsafe_allow_html=True)
