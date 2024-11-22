@@ -1012,12 +1012,25 @@ def main():
                 st.rerun()
         
         st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
+        
+        # Component descriptions
+        component_descriptions = {
+            "Advice": "Get expert guidance on handling specific parenting situations based on evidence-based strategies.",
+            "Conversation Starters": "Receive help initiating difficult conversations with suggested opening phrases and questions.",
+            "Communication Techniques": "Discover helpful ways to talk with your child and get tips on how to give clear and simple answers.",
+            "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach.",
+            "View Reflections": "Review your saved insights and learning from previous practice sessions."
+        }
 
         selected = st.radio(
             "Choose an option:",
-            ["Advice", "Conversation Starters", "Communication Techniques", "Role-Play Simulation", "View Reflections"],
-            horizontal=True
+            list(component_descriptions.keys()),
+            horizontal=True,
+            help="Select a tool that best matches your current needs"
         )
+
+        # Display component description
+        st.info(component_descriptions[selected])
 
         if selected == "Advice":
             display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
