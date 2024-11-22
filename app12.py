@@ -441,64 +441,45 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
     
     if response_key in st.session_state['stored_responses']:
         return st.session_state['stored_responses'][response_key]
-        
-    # First analyze parent's response
-    analysis_messages = [
-        {"role": "system", "content": "You are an AI analyzing a parent's response to understand its intent and emotional tone. Respond with a JSON containing: - intent: command/question/acknowledgment/suggestion - emotional_tone: supportive/stern/neutral/frustrated - key_topics: list of main subjects mentioned"},
-        {"role": "user", "content": parent_response}
-    ]
     
-    try:
-        analysis = openai.chat.completions.create(
-            model="gpt-4",
-            messages=analysis_messages,
-            temperature=0.3,
-            max_tokens=100
-        )
-        parent_analysis = json.loads(analysis.choices[0].message.content)
+    messages = [
+        {"role": "system", "content": f"""You are {child_name}, a {child_age}-year-old child responding to your parent.
+        Current mood: {mood}
+        Situation: {situation}
+        Recent context: {' | '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])}
+
+        Use these age-appropriate response patterns:
+        {AGE_SPECIFIC_RESPONSES[child_age][mood]}
+
+        IMPORTANT GUIDELINES:
+        1. Always respond as {child_name} specifically
+        2. Use age-appropriate language for {child_age}
+        3. Show {mood} mood through words and actions
+        4. Keep responses very short (1-2 sentences)
+        5. Include emotional reactions (crying, stomping, etc.)
+        6. Use simple vocabulary only
+        7. Never explain rationally or use adult phrasing
+        8. Reference siblings or friends when complaining about fairness
+        9. Show raw emotion rather than logical thinking
+        10. Sometimes include physical actions in *asterisks*
         
-        # Then generate child's response using combined approach
-        response_messages = [
-            {"role": "system", "content": f"""You are {child_name}, a {child_age}-year-old child responding to your parent.
-            Current mood: {mood}
-            Situation: {situation}
-            Parent's approach: Intent: {parent_analysis['intent']}, Tone: {parent_analysis['emotional_tone']}
-            Topics: {', '.join(parent_analysis['key_topics'])}
-            Recent context: {' | '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])}
+        Analyze parent's response:
+        - If stern/commanding: Show appropriate resistance or compliance based on mood
+        - If supportive/understanding: React with more openness
+        - If asking questions: Give age-appropriate answers that match emotional state
+        - Stay consistent with your previous responses in the conversation
 
-            Use these age-appropriate response patterns:
-            {AGE_SPECIFIC_RESPONSES[child_age][mood]}
+        Parent's response to react to: {parent_response}"""}
+    ]
 
-            IMPORTANT GUIDELINES:
-            1. Always respond as {child_name} specifically
-            2. Use age-appropriate language for {child_age}
-            3. Show {mood} mood through words and actions
-            4. Keep responses very short (1-2 sentences)
-            5. Include emotional reactions (crying, stomping, etc.)
-            6. Use simple vocabulary only
-            7. Never explain rationally or use adult phrasing
-            8. Reference siblings or friends when complaining about fairness
-            9. Show raw emotion rather than logical thinking
-            10. Sometimes include physical actions in *asterisks*
-
-            Respond based on parent's approach:
-            - Command? {parent_analysis['intent'] == 'command'}: Show resistance or compliance based on mood
-            - Question? {parent_analysis['intent'] == 'question'}: Give emotional, age-appropriate answer
-            - Supportive tone? {parent_analysis['emotional_tone'] == 'supportive'}: Show more openness
-            - Stern tone? {parent_analysis['emotional_tone'] == 'stern'}: React with appropriate resistance/acceptance
-
-            Parent's response: {parent_response}"""}
-        ]
-
+    try:
         completion = openai.chat.completions.create(
             model="gpt-4",
-            messages=response_messages,
+            messages=messages,
             temperature=0.7,
             max_tokens=60
         )
-        
         response = completion.choices[0].message.content.strip()
-        st.session_state['stored_responses'][response_key] = response
         
         if 'run_id' in st.session_state:
             update_langsmith_run(
@@ -506,14 +487,13 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
                 {
                     "parent_response": parent_response,
                     "child_response": response,
-                    "parent_analysis": parent_analysis,
                     "strategy_used": strategy,
                     "mood": mood
                 }
             )
         
+        st.session_state['stored_responses'][response_key] = response
         return response
-        
     except Exception as e:
         print(f"Error generating child response: {e}")
         return "I don't know what to say..."
