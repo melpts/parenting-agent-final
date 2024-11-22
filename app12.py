@@ -6,6 +6,132 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Add custom CSS for improved typography and spacing
+st.markdown("""
+    <style>
+    /* General Typography */
+    body {
+        font-family: 'Arial', sans-serif;
+    }
+    h1, h2, h3, .section-header {
+        font-family: 'Roboto', sans-serif;
+    }
+    .main-header {
+        font-size: 2em;
+        font-weight: bold;
+        margin-bottom: 1em;
+    }
+    .section-header {
+        font-size: 1.5em;
+        font-weight: bold;
+        margin: 1em 0;
+    }
+    .subsection-header {
+        font-size: 1.2em;
+        font-weight: bold;
+        margin: 0.8em 0;
+    }
+    .description-text {
+        font-size: 1em;
+        line-height: 1.6;
+        margin: 1em 0;
+    }
+
+    /* Sidebar Information Section */
+    .info-section {
+        background-color: #f9f9f9;
+        padding: 1em;
+        border-radius: 0.5em;
+        margin: 1em 0;
+        border: 1px solid #dcdcdc;
+    }
+
+    /* Styling for Situation Text */
+    .situation-text {
+        font-size: 1.2em;
+        line-height: 1.8;
+        margin: 1em 0;
+        padding: 1em;
+        background-color: #e7f3f3;
+        border: 1px solid #d1e7e7;
+        border-radius: 0.5em;
+    }
+
+    /* Button Styling */
+    div.stButton > button {
+        width: 100%;
+        height: 45px;
+        font-size: 0.9em;
+        margin: 5px 0;
+        background-color: #6c757d;
+        color: white;
+        border-radius: 5px;
+    }
+
+    /* Text Area Styling */
+    .stTextArea > div > div > textarea {
+        font-size: 1em;
+        line-height: 1.5;
+        padding: 10px;
+        border: 1px solid #ced4da;
+        border-radius: 5px;
+    }
+
+    /* Message Bubbles */
+    .message-parent, .message-child {
+        padding: 1em;
+        border-radius: 0.5em;
+        margin: 0.5em 0;
+        border: 1px solid #ddd;
+    }
+    .message-parent {
+        background-color: #f8f9fa;
+    }
+    .message-child {
+        background-color: #eef6fc;
+    }
+
+    /* Strategy Explanation Section */
+    .strategy-explanation {
+        background-color: #f9f9f9;
+        border-left: 4px solid #5cb85c;
+        padding: 1em;
+        border-radius: 0.5em;
+        line-height: 1.5;
+        margin: 0.5em 0;
+    }
+
+    /* Radio Button Styling */
+    .stRadio > div {
+        gap: 0.5em;
+        flex-wrap: wrap;
+    }
+    .stRadio > div > label {
+        padding: 0.5em 1em;
+        border-radius: 0.5em;
+        background-color: #f8f9fa;
+        flex: 1;
+        text-align: center;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 1.8em;
+        }
+        .section-header {
+            font-size: 1.4em;
+        }
+        .description-text {
+            font-size: 0.9em;
+        }
+        div.stButton > button {
+            font-size: 0.9em;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 import os
 import json
 import re
@@ -65,6 +191,25 @@ os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 # Initialize LangSmith Client
 smith_client = Client()
 
+# Database setup
+DATABASE_URL = "sqlite:///parenting_app.db"
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Database Models
+class Reflection(Base):
+    __tablename__ = "reflections"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True)
+    type = Column(String)
+    content = Column(JSON)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    langsmith_run_id = Column(String)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
 # LangSmith Helper Functions
 def create_langsmith_run(name, inputs, fallback_id=None):
     try:
@@ -86,11 +231,29 @@ def update_langsmith_run(run_id, outputs):
     except Exception as e:
         print(f"Error updating LangSmith run: {e}")
 
-# Strategy explanations
+# Strategy explanations with improved formatting
 STRATEGY_EXPLANATIONS = {
-    "Active Listening": "👂 Active Listening involves fully focusing on, understanding, and remembering what your child is saying. This helps them feel heard and valued.",
-    "Positive Reinforcement": "⭐ Positive Reinforcement involves encouraging desired behaviors through specific praise or rewards, helping build self-esteem and motivation.",
-    "Reflective Questioning": "❓ Reflective Questioning uses open-ended questions to help children think deeper and express themselves. For example: 'What do you think about...?'"
+    "Active Listening": """
+        <div class='strategy-explanation'>
+            👂 <strong>Active Listening</strong><br>
+            Fully focus on, understand, and remember what your child is saying. 
+            This helps them feel heard and valued.
+        </div>
+    """,
+    "Positive Reinforcement": """
+        <div class='strategy-explanation'>
+            ⭐ <strong>Positive Reinforcement</strong><br>
+            Encourage desired behaviors through specific praise or rewards, 
+            helping build self-esteem and motivation.
+        </div>
+    """,
+    "Reflective Questioning": """
+        <div class='strategy-explanation'>
+            ❓ <strong>Reflective Questioning</strong><br>
+            Use open-ended questions to help children think deeper and express themselves. 
+            For example: 'What do you think about...?'
+        </div>
+    """
 }
 
 # Age-specific responses dictionary
@@ -165,24 +328,6 @@ AGE_SPECIFIC_RESPONSES = {
         ]
     }
 }
-
-# Database setup
-DATABASE_URL = "sqlite:///parenting_app.db"
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-class Reflection(Base):
-    __tablename__ = "reflections"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, index=True)
-    type = Column(String)
-    content = Column(JSON)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    langsmith_run_id = Column(String)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
 
 # Initialize session state
 if 'run_id' not in st.session_state: 
@@ -381,19 +526,40 @@ def generate_conversation_starters(situation):
     )
     return completion.choices[0].message.content.strip()
 
+def reformulate_phrase(phrase, strategy):
+    messages = [
+        {"role": "system", "content": f"You are a parenting communication expert. Reformulate the given phrase using {strategy} principles. Keep the same meaning but change the delivery."},
+        {"role": "user", "content": f"Please reformulate this phrase: {phrase}"}
+    ]
+    
+    try:
+        completion = openai.chat.completions.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=100
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error reformulating phrase: {e}")
+        return None
+
 def show_info_screen():
-    st.title("Welcome to Parenting Support Bot")
+    st.markdown("<h1 class='main-header'>Welcome to Parenting Support Bot</h1>", unsafe_allow_html=True)
     
     with st.form(key='parent_info_form'):
-        st.subheader("Please Tell Us About You")
-        parent_name = st.text_input("Your Name")
+        st.markdown("<h2 class='section-header'>Please Tell Us About You</h2>", unsafe_allow_html=True)
+        parent_name = st.text_input("Prolific ID")
         child_name = st.text_input("Child's Name")
         
         age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
         child_age = st.selectbox("Child's Age Range", age_ranges)
         
-        situation = st.text_area("Describe the situation you'd like help with")
-        submit_button = st.form_submit_button("Start")
+        st.markdown("<p class='description-text'>Describe the situation you'd like help with:</p>", 
+                   unsafe_allow_html=True)
+        situation = st.text_area("", placeholder="Type your situation here...", height=120)
+        
+        submit_button = st.form_submit_button("Start", use_container_width=True)
         
         if submit_button and parent_name and child_name and situation:
             st.session_state['parent_name'] = parent_name
@@ -404,7 +570,6 @@ def show_info_screen():
             st.rerun()
         elif submit_button:
             st.error("Please fill in all fields")
-
 @traceable(name="simulate_conversation")
 def simulate_conversation_streamlit(name, child_age, situation):
     name = st.session_state.get('parent_name', name)
@@ -412,18 +577,19 @@ def simulate_conversation_streamlit(name, child_age, situation):
     child_age = st.session_state.get('child_age', child_age)
     situation = st.session_state.get('situation', situation)
     
-    st.subheader("Parent-Child Role-Play Simulator")
+    st.markdown("<h1 class='main-header'>Parent-Child Role-Play Simulator</h1>", unsafe_allow_html=True)
     
-    # Add introduction
-    st.markdown("""
-    Welcome to the conversation simulator! Here you can practice different communication strategies 
-    with your child in a safe environment. Start by responding to the situation as you normally would, 
-    and then try incorporating different communication strategies to see how they might change the interaction.
-    
-    **Your situation:** {}
-    
-    Begin by typing how you would typically respond to this situation.
-    """.format(situation))
+    st.markdown(f"""
+        <div class='description-text'>
+            Welcome to the conversation simulator! Here you can practice different communication strategies 
+            with your child in a safe environment. Start by responding to the situation as you normally would, 
+            and then try incorporating different communication strategies to see how they might change the interaction.
+        </div>
+        
+        <div class='situation-text'>
+            <strong>Your situation:</strong> {situation}
+        </div>
+    """, unsafe_allow_html=True)
 
     if 'conversation_history' not in st.session_state:
         st.session_state['conversation_history'] = []
@@ -445,8 +611,8 @@ def simulate_conversation_streamlit(name, child_age, situation):
         )
         st.session_state['run_id'] = run_id
 
-    # Display strategy selection using more interactive buttons
-    st.write("Choose your communication strategy:")
+    # Strategy selection with improved layout
+    st.markdown("<h2 class='section-header'>Choose your communication strategy:</h2>", unsafe_allow_html=True)
     cols = st.columns(3)
     for i, (strategy, explanation) in enumerate(STRATEGY_EXPLANATIONS.items()):
         with cols[i]:
@@ -464,34 +630,85 @@ def simulate_conversation_streamlit(name, child_age, situation):
                 st.rerun()
     
     # Display current strategy explanation
-    st.info(STRATEGY_EXPLANATIONS[st.session_state['strategy']])
+    st.markdown(STRATEGY_EXPLANATIONS[st.session_state['strategy']], unsafe_allow_html=True)
 
-    # Display conversation history with improved formatting
-    st.write("Conversation:")
+    # Initialize new session states if not present
+    if 'paused' not in st.session_state:
+        st.session_state['paused'] = False
+    if 'show_hints' not in st.session_state:
+        st.session_state['show_hints'] = False
+
+    # Action buttons with improved styling
+    st.markdown("<h3 class='subsection-header'>Conversation Controls</h3>", unsafe_allow_html=True)
+    action_cols = st.columns(3)
+    with action_cols[0]:
+        if st.button("⏸️ Pause/Resume", use_container_width=True):
+            st.session_state['paused'] = not st.session_state['paused']
+    with action_cols[1]:
+        if st.button("💡 Show Hints", use_container_width=True):
+            st.session_state['show_hints'] = not st.session_state['show_hints']
+    with action_cols[2]:
+        if st.button("🔄 Reformulate Response", use_container_width=True):
+            if st.session_state['conversation_history']:
+                last_response = next((msg['content'] for msg in reversed(st.session_state['conversation_history']) 
+                                   if msg['role'] == 'parent'), None)
+                if last_response:
+                    reformulated = reformulate_phrase(last_response, st.session_state['strategy'])
+                    if reformulated:
+                        st.info(f"Reformulated response suggestion:\n\n{reformulated}")
+
+    # If paused, show reflection prompts
+    if st.session_state['paused']:
+        st.info("""
+        Take a moment to reflect:
+        - What emotions are you noticing in yourself?
+        - What might your child be feeling?
+        - What's your goal in this interaction?
+        """)
+        if st.button("Continue"):
+            st.session_state['paused'] = False
+            st.rerun()
+        return
+
+    # Show hints if requested
+    if st.session_state['show_hints']:
+        st.info(f"""
+        Hints for {st.session_state['strategy']}:
+        - Listen actively and acknowledge feelings
+        - Use "I" statements
+        - Ask open-ended questions
+        - Validate emotions before problem-solving
+        """)
+
+    # Display conversation with improved formatting
+    st.markdown("<h3 class='subsection-header'>Conversation:</h3>", unsafe_allow_html=True)
     for msg in st.session_state['conversation_history']:
         col1, col2 = st.columns([8, 4])
         with col1:
-            if msg['role'] == 'parent':
-                st.markdown(f"**You:** {msg['content']}")
-            else:
-                st.markdown(f"**{child_name}:** {msg['content']}")
+            speaker = "You" if msg['role'] == 'parent' else child_name
+            st.markdown(f"""
+                <div class='message-{msg["role"]}'>
+                    <strong>{speaker}:</strong> {msg['content']}
+                </div>
+            """, unsafe_allow_html=True)
         with col2:
             if msg['role'] == 'parent' and 'feedback' in msg:
                 st.info(f"💡 {msg['feedback']}")
 
-    # Parent's input section
+    # Parent's input section with placeholder text
     with st.form(key=f'parent_input_form_{st.session_state["simulation_id"]}_{st.session_state["turn_count"]}'):
         user_input = st.text_area(
             "Your response:",
+            placeholder="Type your response here...",
             key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
             height=100
         )
-        col1, col2 = st.columns(2)
-        with col1:
+        submit_cols = st.columns(2)
+        with submit_cols[0]:
             send_button = st.form_submit_button("Send Response", use_container_width=True)
-        with col2:
+        with submit_cols[1]:
             end_button = st.form_submit_button("End Conversation", use_container_width=True, type="secondary")
-    
+
     if send_button and user_input:
         feedback = provide_realtime_feedback(user_input, st.session_state['strategy'])
         st.session_state['conversation_history'].append({
@@ -542,7 +759,7 @@ def simulate_conversation_streamlit(name, child_age, situation):
         update_langsmith_run(
             st.session_state['run_id'],
             {
-                "conversation_ended": True, 
+                "conversation_ended": True,
                 "total_turns": st.session_state['turn_count']
             }
         )
@@ -550,7 +767,27 @@ def simulate_conversation_streamlit(name, child_age, situation):
 def end_simulation(conversation_history, child_age, strategy):
     st.session_state['simulation_ended'] = True
     st.write("The simulation has ended.")
-    st.subheader("Final Reflection")
+
+    # Add interaction playback
+    st.markdown("<h2 class='section-header'>Conversation Playback</h2>", unsafe_allow_html=True)
+    if conversation_history:
+        for msg in conversation_history:
+            with st.expander(f"{msg['role'].title()}'s message"):
+                st.write(msg['content'])
+                if msg.get('feedback'):
+                    st.info(f"💡 Feedback: {msg['feedback']}")
+
+        # Add communication pattern analysis
+        st.markdown("<h2 class='section-header'>Communication Pattern Analysis</h2>", unsafe_allow_html=True)
+        parent_messages = [msg for msg in conversation_history if msg['role'] == 'parent']
+        strategies_used = [msg.get('strategy_used', strategy) for msg in parent_messages]
+        
+        # Display strategy usage
+        st.write("**Strategy Usage:**")
+        for strategy_name, count in {s: strategies_used.count(s) for s in set(strategies_used)}.items():
+            st.write(f"- {strategy_name}: {count} times")
+            
+    st.markdown("<h2 class='section-header'>Final Reflection</h2>", unsafe_allow_html=True)
     
     with st.form(key='end_simulation_form'):
         current_reflection = {}
@@ -575,7 +812,7 @@ def end_simulation(conversation_history, child_age, strategy):
             key="reflection_improvements"
         )
         
-        submit_button = st.form_submit_button("Save Reflection")
+        submit_button = st.form_submit_button("Save Reflection", use_container_width=True)
     
     if submit_button:
         if not any(answer.strip() for answer in current_reflection.values()):
@@ -606,7 +843,7 @@ def end_simulation(conversation_history, child_age, strategy):
         
         if success:
             st.success("✨ Reflection saved successfully! View it in the 'View Reflections' tab.")
-            if st.button("Start New Conversation"):
+            if st.button("Start New Conversation", use_container_width=True):
                 reset_simulation()
                 st.rerun()
         else:
@@ -624,7 +861,7 @@ def reset_simulation():
 
 @traceable(name="display_advice")
 def display_advice(parent_name, child_age, situation):
-    st.subheader("Parenting Advice")
+    st.markdown("<h2 class='section-header'>Parenting Advice</h2>", unsafe_allow_html=True)
     if situation:
         try:
             with st.spinner('Processing your request...'):
@@ -658,7 +895,7 @@ def display_advice(parent_name, child_age, situation):
 
 @traceable(name="display_conversation_starters")
 def display_conversation_starters(situation):
-    st.subheader("Conversation Starters")
+    st.markdown("<h2 class='section-header'>Conversation Starters</h2>", unsafe_allow_html=True)
     if situation:
         try:
             with st.spinner('Generating conversation starters...'):
@@ -679,7 +916,7 @@ def display_conversation_starters(situation):
 
 @traceable(name="display_communication_techniques")
 def display_communication_techniques(situation):
-    st.subheader("Communication Techniques")
+    st.markdown("<h2 class='section-header'>Communication Techniques</h2>", unsafe_allow_html=True)
     if situation:
         try:
             with st.spinner('Generating communication techniques...'):
@@ -706,9 +943,8 @@ def display_communication_techniques(situation):
             st.error(f"An error occurred: {str(e)}")
     else:
         st.warning("Please describe the situation in the sidebar to get communication techniques.")
-
 def display_saved_reflections(user_id):
-    st.subheader("Your Saved Reflections")
+    st.markdown("<h2 class='section-header'>Your Saved Reflections</h2>", unsafe_allow_html=True)
     
     if not user_id:
         st.warning("Please enter your name in the sidebar first.")
@@ -733,15 +969,23 @@ def display_saved_reflections(user_id):
                         st.write("\n**Your Reflections:**")
                         for question, answer in content['reflection_content'].items():
                             if answer and answer.strip():
-                                st.markdown(f"**{question}**")
-                                st.write(answer)
-                                st.markdown("---")
+                                st.markdown(f"""
+                                    <div class='reflection-item'>
+                                        <strong>{question}</strong><br>
+                                        {answer}
+                                    </div>
+                                    <hr>
+                                """, unsafe_allow_html=True)
                     else:
                         for question, answer in content.items():
                             if answer and answer.strip():
-                                st.markdown(f"**{question}**")
-                                st.write(answer)
-                                st.markdown("---")
+                                st.markdown(f"""
+                                    <div class='reflection-item'>
+                                        <strong>{question}</strong><br>
+                                        {answer}
+                                    </div>
+                                    <hr>
+                                """, unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"Error displaying reflection: {str(e)}")
 
@@ -753,13 +997,17 @@ def main():
         show_info_screen()
     else:
         with st.sidebar:
-            st.subheader("Current Information")
-            st.write(f"Parent: {st.session_state['parent_name']}")
-            st.write(f"Child: {st.session_state['child_name']}")
-            st.write(f"Age: {st.session_state['child_age']}")
-            st.write(f"Situation: {st.session_state['situation']}")
+            st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class='info-section'>
+                    <strong>Parent:</strong> {st.session_state['parent_name']}<br>
+                    <strong>Child:</strong> {st.session_state['child_name']}<br>
+                    <strong>Age:</strong> {st.session_state['child_age']}<br>
+                    <strong>Situation:</strong> {st.session_state['situation']}
+                </div>
+            """, unsafe_allow_html=True)
             
-            if st.button("Edit Information"):
+            if st.button("Edit Information", use_container_width=True):
                 st.session_state['info_submitted'] = False
                 if 'conversation_history' in st.session_state:
                     st.session_state.pop('conversation_history')
@@ -767,7 +1015,7 @@ def main():
                     st.session_state.pop('run_id')
                 st.rerun()
         
-        st.title("Parenting Support Bot")
+        st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
 
         selected = st.radio(
             "Choose an option:",
@@ -785,6 +1033,34 @@ def main():
             simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
         elif selected == "View Reflections":
             display_saved_reflections(st.session_state['parent_name'])
+
+# Add additional CSS for reflection display
+st.markdown("""
+    <style>
+    .info-section {
+        background-color: #f8f9fa;
+        padding: 1em;
+        border-radius: 0.5em;
+        margin: 1em 0;
+    }
+    .reflection-item {
+        margin: 1em 0;
+        line-height: 1.6;
+    }
+    .stRadio > div {
+        display: flex;
+        gap: 1em;
+        flex-wrap: wrap;
+    }
+    .stRadio > div > label {
+        padding: 0.5em 1em;
+        border-radius: 0.5em;
+        background-color: #f8f9fa;
+        flex: 1;
+        text-align: center;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
