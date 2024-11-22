@@ -208,6 +208,33 @@ STRATEGY_EXPLANATIONS = {
     """
 }
 
+STRATEGY_HINTS = {
+    "Active Listening": [
+        "- Repeat back what your child says to show understanding",
+        "- Use phrases like 'I hear that you...' or 'It sounds like...'",
+        "- Notice and name emotions: 'You seem frustrated'",
+        "- Give your child full attention, maintain eye contact",
+        "- Avoid interrupting or finishing their sentences",
+        "- Acknowledge their perspective before sharing yours"
+    ],
+    "Positive Reinforcement": [
+        "- Be specific about what behavior you're praising",
+        "- Focus on effort rather than outcome",
+        "- Use a warm, enthusiastic tone",
+        "- Catch them being good and acknowledge it immediately",
+        "- Describe the positive impact of their behavior",
+        "- Use 'I notice' statements when praising"
+    ],
+    "Reflective Questioning": [
+        "- Ask 'what' and 'how' questions instead of 'why'",
+        "- Use open-ended questions to encourage sharing",
+        "- Follow up their answers with curious questions",
+        "- Avoid leading questions or suggesting answers",
+        "- Show genuine interest in their perspective",
+        "- Give them time to think and respond"
+    ]
+}
+
 # Age-specific responses dictionary
 AGE_SPECIFIC_RESPONSES = {
     "3-5 years": {
@@ -296,6 +323,10 @@ if 'simulation_ended' not in st.session_state:
     st.session_state['simulation_ended'] = False
 if 'stored_responses' not in st.session_state:
     st.session_state['stored_responses'] = {}
+if 'show_hints' not in st.session_state:  
+    st.session_state['show_hints'] = False
+if 'paused' not in st.session_state:  
+    st.session_state['paused'] = False
 
 # Setup chat memory
 msgs = StreamlitChatMessageHistory(key="langchain_messages")
@@ -321,26 +352,42 @@ def save_reflection(user_id, reflection_type, content):
         
     try:
         db = SessionLocal()
+        
+        # Ensure content is JSON serializable
+        if isinstance(content, dict):
+            content_str = json.dumps(content)
+        else:
+            content_str = json.dumps({"content": content})
+        
         db_reflection = Reflection(
             user_id=user_id,
             type=reflection_type,
-            content=json.dumps(content),
+            content=content_str,
             langsmith_run_id=st.session_state.get('run_id'),
             timestamp=datetime.utcnow()
         )
+        
         db.add(db_reflection)
         db.commit()
         db.refresh(db_reflection)
-        print(f"Saved reflection for user {user_id}: {reflection_type}")
         
         if st.session_state.get('run_id'):
             update_langsmith_run(
                 st.session_state['run_id'],
-                {"reflection_saved": content}
+                {
+                    "reflection_saved": {
+                        "type": reflection_type,
+                        "content": content,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                }
             )
+        
         return True
+        
     except Exception as e:
         print(f"Error saving reflection: {str(e)}")
+        st.error(f"Failed to save reflection: {str(e)}")
         return False
     finally:
         db.close()
@@ -394,64 +441,79 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
     
     if response_key in st.session_state['stored_responses']:
         return st.session_state['stored_responses'][response_key]
-    
-    messages = [
-        {"role": "system", "content": f"""You are {child_name}, a {child_age}-year-old child responding to your parent. 
-        Current mood: {mood}
-        Situation: {situation}
-
-        Use these age-appropriate response patterns:
-        {AGE_SPECIFIC_RESPONSES[child_age][mood]}
-
-        IMPORTANT GUIDELINES:
-        1. Always respond as {child_name} specifically
-        2. Use age-appropriate language for {child_age}
-        3. Show {mood} mood through words and actions
-        4. Keep responses very short (1-2 sentences)
-        5. Include emotional reactions (crying, stomping, etc.)
-        6. Use simple vocabulary only
-        7. Never explain rationally or use adult phrasing
-        8. Reference siblings or friends when complaining about fairness
-        9. Show raw emotion rather than logical thinking
-        10. Sometimes include physical actions in *asterisks*
-
-        Parent's response to react to: {parent_response}"""}
+        
+    # First analyze parent's response
+    analysis_messages = [
+        {"role": "system", "content": "You are an AI analyzing a parent's response to understand its intent and emotional tone. Respond with a JSON containing: - intent: command/question/acknowledgment/suggestion - emotional_tone: supportive/stern/neutral/frustrated - key_topics: list of main subjects mentioned"},
+        {"role": "user", "content": parent_response}
     ]
-
+    
     try:
+        analysis = openai.chat.completions.create(
+            model="gpt-4",
+            messages=analysis_messages,
+            temperature=0.3,
+            max_tokens=100
+        )
+        parent_analysis = json.loads(analysis.choices[0].message.content)
+        
+        # Then generate child's response using combined approach
+        response_messages = [
+            {"role": "system", "content": f"""You are {child_name}, a {child_age}-year-old child responding to your parent.
+            Current mood: {mood}
+            Situation: {situation}
+            Parent's approach: Intent: {parent_analysis['intent']}, Tone: {parent_analysis['emotional_tone']}
+            Topics: {', '.join(parent_analysis['key_topics'])}
+            Recent context: {' | '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])}
+
+            Use these age-appropriate response patterns:
+            {AGE_SPECIFIC_RESPONSES[child_age][mood]}
+
+            IMPORTANT GUIDELINES:
+            1. Always respond as {child_name} specifically
+            2. Use age-appropriate language for {child_age}
+            3. Show {mood} mood through words and actions
+            4. Keep responses very short (1-2 sentences)
+            5. Include emotional reactions (crying, stomping, etc.)
+            6. Use simple vocabulary only
+            7. Never explain rationally or use adult phrasing
+            8. Reference siblings or friends when complaining about fairness
+            9. Show raw emotion rather than logical thinking
+            10. Sometimes include physical actions in *asterisks*
+
+            Respond based on parent's approach:
+            - Command? {parent_analysis['intent'] == 'command'}: Show resistance or compliance based on mood
+            - Question? {parent_analysis['intent'] == 'question'}: Give emotional, age-appropriate answer
+            - Supportive tone? {parent_analysis['emotional_tone'] == 'supportive'}: Show more openness
+            - Stern tone? {parent_analysis['emotional_tone'] == 'stern'}: React with appropriate resistance/acceptance
+
+            Parent's response: {parent_response}"""}
+        ]
+
         completion = openai.chat.completions.create(
             model="gpt-4",
-            messages=messages,
+            messages=response_messages,
             temperature=0.7,
-            max_tokens=40
+            max_tokens=60
         )
+        
         response = completion.choices[0].message.content.strip()
-        
-        if 'run_id' not in st.session_state:
-            run_id = create_langsmith_run(
-                name="child_response",
-                inputs={
-                    "child_age": child_age,
-                    "situation": situation,
-                    "mood": mood,
-                    "strategy": strategy
-                },
-                fallback_id=str(random.randint(1000, 9999))
-            )
-            st.session_state['run_id'] = run_id
-        
-        update_langsmith_run(
-            st.session_state['run_id'],
-            {
-                "parent_response": parent_response,
-                "child_response": response,
-                "strategy_used": strategy,
-                "mood": mood
-            }
-        )
-        
         st.session_state['stored_responses'][response_key] = response
+        
+        if 'run_id' in st.session_state:
+            update_langsmith_run(
+                st.session_state['run_id'],
+                {
+                    "parent_response": parent_response,
+                    "child_response": response,
+                    "parent_analysis": parent_analysis,
+                    "strategy_used": strategy,
+                    "mood": mood
+                }
+            )
+        
         return response
+        
     except Exception as e:
         print(f"Error generating child response: {e}")
         return "I don't know what to say..."
@@ -595,12 +657,6 @@ def simulate_conversation_streamlit(name, child_age, situation):
     # Display current strategy explanation
     st.markdown(STRATEGY_EXPLANATIONS[st.session_state['strategy']], unsafe_allow_html=True)
 
-    # Initialize new session states if not present
-    if 'paused' not in st.session_state:
-        st.session_state['paused'] = False
-    if 'show_hints' not in st.session_state:
-        st.session_state['show_hints'] = False
-
     # Action buttons with improved styling
     st.markdown("<h3 class='subsection-header'>Conversation Controls</h3>", unsafe_allow_html=True)
     action_cols = st.columns(3)
@@ -635,13 +691,8 @@ def simulate_conversation_streamlit(name, child_age, situation):
 
     # Show hints if requested
     if st.session_state['show_hints']:
-        st.info(f"""
-        Hints for {st.session_state['strategy']}:
-        - Listen actively and acknowledge feelings
-        - Use "I" statements
-        - Ask open-ended questions
-        - Validate emotions before problem-solving
-        """)
+        hints = STRATEGY_HINTS[st.session_state['strategy']]
+        st.info("\n".join(hints))
 
     # Display conversation with improved formatting
     st.markdown("<h3 class='subsection-header'>Conversation:</h3>", unsafe_allow_html=True)
@@ -727,6 +778,7 @@ def simulate_conversation_streamlit(name, child_age, situation):
             }
         )
         end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
+
 def end_simulation(conversation_history, child_age, strategy):
     st.session_state['simulation_ended'] = True
     st.write("The simulation has ended.")
@@ -906,6 +958,7 @@ def display_communication_techniques(situation):
             st.error(f"An error occurred: {str(e)}")
     else:
         st.warning("Please describe the situation in the sidebar to get communication techniques.")
+
 def display_saved_reflections(user_id):
     st.markdown("<h2 class='section-header'>Your Saved Reflections</h2>", unsafe_allow_html=True)
     
