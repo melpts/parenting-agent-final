@@ -239,18 +239,28 @@ STRATEGY_HINTS = {
 AGE_SPECIFIC_RESPONSES = {
     "3-5 years": {
         "cooperative": [
-            "*looking up with big eyes* Okay, I'll try...",
+            "Okay, I'll try...",
             "Can you help me?",
-            "*nodding* I want to be good!",
+            "I want to be good!",
             "Like this, Mommy/Daddy?",
-            "*trying but struggling* It's hard!"
+            "It's hard!"
+            "I can try that!",
+            "*showing effort* Is this better?",
+            "*smiling* Can you help me?",
+            "*wiping tears* I'm sorry",
+            "*picking up toys* I can clean up!"
         ],
         "defiant": [
             "No! No! NO!",
             "*throwing self on floor* I DON'T WANNA!",
             "*covering ears* La la la, can't hear you!",
             "You're not the boss of me!",
-            "*crying loudly* I want MY way!"
+            "I want MY way!"
+            "NO NO NO!",
+            "*turning away* Not listening!",
+            "Don't want to!",
+            "*flopping on floor* It's not FAIR!",
+            "*pushing away* Leave me alone!"
         ],
         "distracted": [
             "Look, my toy is dancing!",
@@ -258,15 +268,25 @@ AGE_SPECIFIC_RESPONSES = {
             "*spinning around* Wheeeee!",
             "But I wanna play with my blocks!",
             "Is it time for cartoons?"
+            "But my show is on...",
+            "*spinning in circles* Wheeee!",
+            "*building with blocks* Just one more tower?",
+            "*drawing* Need to finish coloring!",
+            "But I'm not done yet!",
+            "*watching TV* After this part..."
         ]
     },
     "6-9 years": {
         "cooperative": [
             "I'll clean up after I finish this part.",
             "Sorry, I didn't mean to...",
-            "Can we make a deal?",
             "I promise I'll do better.",
             "Will you show me how?"
+            "*putting down game* Okay, I understand",
+            "I know I should... *starting task*",
+            "*organizing things* I'm helping!",
+            "You're right... *beginning task*",
+            "*showing work* Is this better?",
         ],
         "defiant": [
             "But that's not fair! Jamie never has to!",
@@ -274,13 +294,25 @@ AGE_SPECIFIC_RESPONSES = {
             "I hate these rules!",
             "You never let me do anything fun!",
             "Well, Sarah's parents let her!"
+            "But Emma's mom lets her!",
+            "*rolling eyes* This isn't fair!",
+            "You NEVER let me do anything fun!",
+            "*slamming door* Leave me alone!",
+            "Why do I always have to?",
+            "*arms crossed* Make me!",
+            "You're the worst! *storming off*",
         ],
         "distracted": [
             "But first can I just...",
             "Wait, I forgot to tell you about...",
-            "*staring out window* What's that bird doing?",
             "Can we do it later? I'm almost finished with...",
             "Oh! I just remembered something!"
+            "*playing game* Just need to save...",
+            "But first can I...",
+            "Did you know that... *changing subject*",
+            "*watching YouTube* Almost done!",
+            "Wait, I forgot to tell you about...",
+            "*fixated on phone* In a minute...",
         ]
     },
     "10-12 years": {
@@ -290,20 +322,36 @@ AGE_SPECIFIC_RESPONSES = {
             "Okay, but can we talk about it first?",
             "I understand, but...",
             "I'll do it, just let me finish this."
+            "*putting phone down* Okay, I'm listening",
+            "Can we talk about it?",
+            "*nodding* That's fair",
+            "I understand... *complying*",
+            "*showing compromise* How about this?",
         ],
         "defiant": [
-            "*rolling eyes* Whatever.",
             "This is so unfair! You never understand!",
             "Everyone else gets to!",
             "*slamming door* Leave me alone!",
             "You're ruining everything!"
+            "*eye roll* Whatever",
+            "This is SO unfair! *texting friends*",
+            "You don't understand ANYTHING!",
+            "*slamming door* I hate this!",
+            "Everyone else's parents...",
+            "*storming off* You're ruining my life!",
+            "This is stupid! *throwing phone*",
         ],
         "distracted": [
             "Yeah, just one more level...",
             "Hold on, I'm texting...",
             "In a minute... I'm doing something.",
-            "Did you see what happened at school today?",
             "But I'm in the middle of something!"
+            "*texting* Just one sec...",
+            "But my friends are waiting online...",
+            "*watching TikTok* Almost done",
+            "*gaming* Can't pause multiplayer!",
+            "Hold on, I'm in the middle of...",
+            "*scrolling phone* Five more minutes?",
         ]
     }
 }
