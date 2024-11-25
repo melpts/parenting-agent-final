@@ -337,7 +337,24 @@ def init_session_state():
 def track_feature_visit(feature_name):
     if 'visited_features' not in st.session_state:
         st.session_state.visited_features = set()
-    st.session_state.visited_features.add(feature_name)
+    
+    # Normalize the feature name to match the display format
+    feature_display_map = {
+        "advice": "Advice",
+        "conversation_starters": "Conversation Starters",
+        "communication_techniques": "Communication Techniques",
+        "role_play": "Role-Play Simulation",
+        "reflections": "View Reflections",
+        "Role-Play Simulation": "Role-Play Simulation",
+        "View Reflections": "View Reflections"
+    }
+    
+    # Add both the normalized and display versions
+    normalized_name = feature_display_map.get(feature_name, feature_name)
+    st.session_state.visited_features.add(normalized_name)
+    
+    # Also add the lowercase version for compatibility
+    st.session_state.visited_features.add(normalized_name.lower().replace(" ", "_"))
 
 CUSTOM_CSS = """
     <style>
@@ -571,8 +588,13 @@ def save_reflection(user_id, reflection_type, content):
     try:
         db = SessionLocal()
         
-        content_str = json.dumps(content) if isinstance(content, dict) else json.dumps({"content": str(content)})
+        # Ensure content is properly serialized
+        if isinstance(content, dict):
+            content_str = json.dumps(content)
+        else:
+            content_str = json.dumps({"content": str(content)})
         
+        # Create new reflection
         db_reflection = Reflection(
             user_id=user_id,
             type=reflection_type,
@@ -581,33 +603,18 @@ def save_reflection(user_id, reflection_type, content):
             timestamp=datetime.utcnow()
         )
         
+        # Save to database
         db.add(db_reflection)
         db.commit()
         db.refresh(db_reflection)
         
-        print(f"Successfully saved reflection for Prolific ID: {user_id}")
+        print(f"Successfully saved reflection with content: {content_str}")
         return True
         
     except Exception as e:
         print(f"Error saving reflection for Prolific ID {user_id}: {str(e)}")
         st.error(f"Failed to save reflection: {str(e)}")
         return False
-    finally:
-        db.close()
-
-def load_reflections(user_id):
-    if not user_id:
-        return []
-        
-    db = SessionLocal()
-    try:
-        reflections = db.query(Reflection).filter(
-            Reflection.user_id == user_id
-        ).order_by(Reflection.timestamp.desc()).all()
-        return reflections
-    except Exception as e:
-        print(f"Error loading reflections: {str(e)}")
-        return []
     finally:
         db.close()
 
@@ -871,6 +878,9 @@ def end_simulation(conversation_history, child_age, strategy):
         
     prolific_id = st.session_state['parent_name']
     
+    # Track that role-play simulation was completed
+    track_feature_visit("Role-Play Simulation")
+    
     st.write("The simulation has ended.")
 
     # Initialize strategies_used set
@@ -881,7 +891,6 @@ def end_simulation(conversation_history, child_age, strategy):
                              for msg in conversation_history 
                              if msg.get('role') == 'parent' and msg.get('strategy_used'))
 
-    # Add interaction playback - only show header once
     st.markdown("<h2 class='section-header'>Conversation Playback</h2>", unsafe_allow_html=True)
     if conversation_history:
         for msg in conversation_history:
@@ -937,6 +946,8 @@ def end_simulation(conversation_history, child_age, strategy):
         success = save_reflection(prolific_id, 'end_simulation', reflection_data)
         
         if success:
+            # Track that reflection was saved
+            track_feature_visit("View Reflections")
             st.success("✨ Reflection saved successfully! View it in the 'View Reflections' tab.")
             if st.button("Start New Conversation"):
                 reset_simulation()
@@ -1038,13 +1049,18 @@ def display_saved_reflections(prolific_id):
     
     db = SessionLocal()
     try:
+        # Add ORDER BY to show newest first
         reflections = db.query(Reflection).filter(
-            Reflection.user_id == prolific_id
+            Reflection.user_id == prolific_id,
+            Reflection.type == 'end_simulation'  # Only show end simulation reflections
         ).order_by(Reflection.timestamp.desc()).all()
         
         if not reflections:
             st.info("No reflections found. Complete a role-play simulation and save your reflections to see them here.")
             return
+        
+        # Mark View Reflections as visited if there are reflections to display
+        track_feature_visit("View Reflections")
         
         st.write(f"Found {len(reflections)} saved reflection(s)")
         
@@ -1053,10 +1069,15 @@ def display_saved_reflections(prolific_id):
                 try:
                     content = json.loads(reflection.content)
                     if isinstance(content, dict):
+                        # Display strategies used
+                        if 'strategies_used' in content:
+                            st.write("**Strategies used:**")
+                            st.write(", ".join(content['strategies_used']))
+                            st.write("")
+
+                        # Display reflection content
                         if 'reflection_content' in content:
-                            st.write("**Strategies used in this conversation:**")
-                            st.write(", ".join(content.get('strategies_used', [])))
-                            st.write("\n**Your Reflections:**")
+                            st.write("**Your Reflections:**")
                             for question, answer in content['reflection_content'].items():
                                 if answer and answer.strip():
                                     st.markdown(f"""
@@ -1066,25 +1087,20 @@ def display_saved_reflections(prolific_id):
                                         </div>
                                         <hr>
                                     """, unsafe_allow_html=True)
-                        else:
-                            for question, answer in content.items():
-                                if answer and answer.strip():
-                                    st.markdown(f"""
-                                        <div class='reflection-item'>
-                                            <strong>{question}</strong><br>
-                                            {answer}
-                                        </div>
-                                        <hr>
-                                    """, unsafe_allow_html=True)
+
+                        # Display conversation summary if available
+                        if 'conversation_summary' in content:
+                            summary = content['conversation_summary']
+                            st.write(f"\n**Conversation Length:** {summary.get('length', 'N/A')} turns")
+                            
                 except json.JSONDecodeError as e:
                     print(f"Error parsing reflection content: {str(e)}")
-                    st.error("Error loading this reflection's content.")
+                    st.error("Error loading reflection content.")
+                    print(f"Raw content: {reflection.content}")
                 except Exception as e:
                     print(f"Error displaying reflection: {str(e)}")
-                    st.error("Error displaying this reflection.")
-    except Exception as e:
-        print(f"Database error while loading reflections: {str(e)}")
-        st.error("Error loading reflections from database.")
+                    st.error("Error displaying reflection.")
+                    print(f"Raw content: {reflection.content}")
     finally:
         db.close()
 
