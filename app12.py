@@ -16,7 +16,6 @@ from langsmith.run_helpers import traceable
 # Suppress deprecation warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
-# Existing imports preserved
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_openai import OpenAI
 from langchain_community.chat_models import ChatOpenAI
@@ -29,23 +28,19 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_community.callbacks.manager import get_openai_callback
 
-# Additional imports for enhanced features
 from streamlit_feedback import streamlit_feedback
 from langsmith import Client
 from langsmith.run_helpers import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-# Load environment variables
 from dotenv import load_dotenv
 
-# Page configuration
 st.set_page_config(
     layout="wide", 
     page_title="Parenting Support Bot",
     initial_sidebar_state="expanded"
 )
 
-# Load environment variables and API keys
 load_dotenv()
 api_key = os.getenv('OPENAI_API_KEY')
 openai.api_key = api_key
@@ -68,7 +63,6 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Updated Database Models with UUID handling
 class Reflection(Base):
     __tablename__ = "reflections"
     id = Column(Integer, primary_key=True, index=True)
@@ -108,7 +102,6 @@ def update_langsmith_run(run_id, outputs):
     except Exception as e:
         print(f"Error updating LangSmith run: {e}")
 
-# Setup chat memory with updated initialization
 def setup_memory():
     msgs = StreamlitChatMessageHistory(key="langchain_messages")
     memory = ConversationBufferMemory(
@@ -118,10 +111,8 @@ def setup_memory():
     )
     return memory
 
-# Initialize memory
 memory = setup_memory()
 
-# Import citation variables - ensure these are properly imported
 from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
 from communication_strategies_citations import COMMUNICATION_STRATEGIES_CITATIONS
 from simulation_citations import SIMULATION_CITATIONS
@@ -131,7 +122,7 @@ from i_messages_citations import I_MESSAGES_CITATIONS
 from positive_reinforcement import POSITIVE_REINFORCEMENT_CITATIONS
 from Reflective_questioning import REFLECTIVE_QUESTIONING_CITATIONS
 
-# Updated Strategy Explanations with improved HTML structure
+
 STRATEGY_EXPLANATIONS = {
     "Active Listening": """
         <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
@@ -162,7 +153,6 @@ STRATEGY_EXPLANATIONS = {
     """
 }
 
-# Updated Strategy Hints
 STRATEGY_HINTS = {
     "Active Listening": [
         "- Repeat back what your child says to show understanding",
@@ -190,7 +180,6 @@ STRATEGY_HINTS = {
     ]
 }
 
-# Age-specific responses dictionary - add this in Part 2 after STRATEGY_HINTS
 AGE_SPECIFIC_RESPONSES = {
     "3-5 years": {
         "cooperative": [
@@ -311,7 +300,6 @@ AGE_SPECIFIC_RESPONSES = {
     }
 }
 
-# Initialize session state with improved type handling
 def init_session_state():
     if 'run_id' not in st.session_state:
         st.session_state['run_id'] = str(uuid4())
@@ -349,7 +337,7 @@ def track_feature_visit(feature_name):
         st.session_state.visited_features = set()
     st.session_state.visited_features.add(feature_name)
 
-# Custom CSS with improved styling
+
 CUSTOM_CSS = """
     <style>
     /* General Typography */
@@ -436,7 +424,6 @@ CUSTOM_CSS = """
     </style>
 """
 
-# Apply custom CSS
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # Initialize session state
@@ -693,7 +680,6 @@ def simulate_conversation_streamlit(name, child_age, situation):
     # Title
     st.markdown("## Parent-Child Role-Play Simulator")
 
-    # Instructions in a clean container
     with st.container():
         st.markdown("""
             #### How to use this simulator:
@@ -1131,7 +1117,6 @@ def main():
                     st.session_state.pop('run_id')
                 st.rerun()
 
-        # Show tutorial if it's the first time
         if 'show_tutorial' not in st.session_state:
             st.session_state.show_tutorial = True
             st.session_state.show_features = False
