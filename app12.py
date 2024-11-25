@@ -33,14 +33,17 @@ from langsmith import Client
 from langsmith.run_helpers import traceable
 from langsmith.run_helpers import get_current_run_tree
 
+# Load environment variables
 from dotenv import load_dotenv
 
+# Page configuration
 st.set_page_config(
     layout="wide", 
     page_title="Parenting Support Bot",
     initial_sidebar_state="expanded"
 )
 
+# Load environment variables and API keys
 load_dotenv()
 api_key = os.getenv('OPENAI_API_KEY')
 openai.api_key = api_key
@@ -75,7 +78,6 @@ class Reflection(Base):
 # Create tables
 Base.metadata.create_all(bind=engine)
 
-# Updated LangSmith Helper Functions with proper UUID handling
 def create_langsmith_run(name, inputs, fallback_id=None):
     try:
         run = smith_client.create_run(
@@ -111,6 +113,7 @@ def setup_memory():
     )
     return memory
 
+# Initialize memory
 memory = setup_memory()
 
 from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
@@ -121,7 +124,6 @@ from Active_listening_citations import ACTIVE_LISTENING_CITATIONS
 from i_messages_citations import I_MESSAGES_CITATIONS
 from positive_reinforcement import POSITIVE_REINFORCEMENT_CITATIONS
 from Reflective_questioning import REFLECTIVE_QUESTIONING_CITATIONS
-
 
 STRATEGY_EXPLANATIONS = {
     "Active Listening": """
@@ -337,7 +339,6 @@ def track_feature_visit(feature_name):
         st.session_state.visited_features = set()
     st.session_state.visited_features.add(feature_name)
 
-
 CUSTOM_CSS = """
     <style>
     /* General Typography */
@@ -424,6 +425,7 @@ CUSTOM_CSS = """
     </style>
 """
 
+# Apply custom CSS
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # Initialize session state
@@ -680,6 +682,7 @@ def simulate_conversation_streamlit(name, child_age, situation):
     # Title
     st.markdown("## Parent-Child Role-Play Simulator")
 
+    # Instructions in a clean container
     with st.container():
         st.markdown("""
             #### How to use this simulator:
@@ -1117,6 +1120,7 @@ def main():
                     st.session_state.pop('run_id')
                 st.rerun()
 
+        # Show tutorial if it's the first time
         if 'show_tutorial' not in st.session_state:
             st.session_state.show_tutorial = True
             st.session_state.show_features = False
