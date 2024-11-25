@@ -1,13 +1,356 @@
 import streamlit as st
+import os
+import json
+import re
+import openai
+import sqlite3
+from datetime import datetime
+import random
+from uuid import UUID, uuid4
+import warnings
+from sqlalchemy import create_engine, Column, Integer, String, JSON, DateTime, Text, Boolean
+from sqlalchemy.orm import declarative_base, sessionmaker
+from langsmith import Client
+from langsmith.run_helpers import traceable
 
+# Suppress deprecation warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
+# Existing imports preserved
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAI
+from langchain_community.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import StringPromptTemplate
+from langchain.chains import ConversationChain, LLMChain
+from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent, AgentOutputParser
+from langchain.schema import HumanMessage, AIMessage, AgentAction, AgentFinish
+from langchain.output_parsers import StructuredOutputParser, ResponseSchema
+from langchain_community.chat_message_histories import StreamlitChatMessageHistory
+from langchain_community.callbacks.manager import get_openai_callback
+
+# Additional imports for enhanced features
+from streamlit_feedback import streamlit_feedback
+from langsmith import Client
+from langsmith.run_helpers import traceable
+from langsmith.run_helpers import get_current_run_tree
+
+# Load environment variables
+from dotenv import load_dotenv
+
+# Page configuration
 st.set_page_config(
     layout="wide", 
     page_title="Parenting Support Bot",
     initial_sidebar_state="expanded"
 )
 
-#custom CSS 
-st.markdown("""
+# Load environment variables and API keys
+load_dotenv()
+api_key = os.getenv('OPENAI_API_KEY')
+openai.api_key = api_key
+
+os.environ["OPENAI_API_KEY"] = st.secrets['OPENAI_API_KEY']
+openai.api_key = os.environ["OPENAI_API_KEY"]
+
+os.environ["LANGCHAIN_API_KEY"] = st.secrets['LANGCHAIN_API_KEY']
+os.environ["LANGCHAIN_PROJECT"] = st.secrets['LANGCHAIN_PROJECT']
+os.environ["LANGCHAIN_PROJECT"] = "Parenting agent2"
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+
+# Initialize LangSmith Client
+smith_client = Client()
+
+# Database setup with updated UUID handling
+DATABASE_URL = "sqlite:///parenting_app.db"
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Updated Database Models with UUID handling
+class Reflection(Base):
+    __tablename__ = "reflections"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True)
+    type = Column(String)
+    content = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    langsmith_run_id = Column(String)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
+# Updated LangSmith Helper Functions with proper UUID handling
+def create_langsmith_run(name, inputs, fallback_id=None):
+    try:
+        run = smith_client.create_run(
+            run_type="chain",
+            name=name,
+            inputs=inputs
+        )
+        return str(run.id) if run else str(uuid4())
+    except Exception as e:
+        print(f"Error creating LangSmith run: {e}")
+        return str(uuid4())
+
+def update_langsmith_run(run_id, outputs):
+    if not run_id:
+        return
+    try:
+        try:
+            UUID(run_id)  # Validate UUID format
+            smith_client.update_run(run_id, outputs=outputs)
+        except ValueError:
+            new_uuid = str(uuid4())
+            print(f"Invalid UUID {run_id}, using new UUID: {new_uuid}")
+            smith_client.update_run(new_uuid, outputs=outputs)
+    except Exception as e:
+        print(f"Error updating LangSmith run: {e}")
+
+# Setup chat memory with updated initialization
+def setup_memory():
+    msgs = StreamlitChatMessageHistory(key="langchain_messages")
+    memory = ConversationBufferMemory(
+        chat_memory=msgs,
+        return_messages=True,
+        memory_key="history"
+    )
+    return memory
+
+# Initialize memory
+memory = setup_memory()
+
+# Import citation variables - ensure these are properly imported
+from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
+from communication_strategies_citations import COMMUNICATION_STRATEGIES_CITATIONS
+from simulation_citations import SIMULATION_CITATIONS
+from Website_citations import WEBSITE_CITATIONS
+from Active_listening_citations import ACTIVE_LISTENING_CITATIONS
+from i_messages_citations import I_MESSAGES_CITATIONS
+from positive_reinforcement import POSITIVE_REINFORCEMENT_CITATIONS
+from Reflective_questioning import REFLECTIVE_QUESTIONING_CITATIONS
+
+# Updated Strategy Explanations with improved HTML structure
+STRATEGY_EXPLANATIONS = {
+    "Active Listening": """
+        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
+            👂 <strong style='color: #2563eb; font-size: 1.2em;'>Active Listening</strong><br>
+            <p style='font-size: 1.1em; line-height: 1.8;'>
+                Fully focus on, understand, and remember what your child is saying. 
+                This helps them feel heard and valued.
+            </p>
+        </div>
+    """,
+    "Positive Reinforcement": """
+        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
+            ⭐ <strong style='color: #2563eb; font-size: 1.2em;'>Positive Reinforcement</strong><br>
+            <p style='font-size: 1.1em; line-height: 1.8;'>
+                Encourage desired behaviors through specific praise or rewards, 
+                helping build self-esteem and motivation.
+            </p>
+        </div>
+    """,
+    "Reflective Questioning": """
+        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
+            ❓ <strong style='color: #2563eb; font-size: 1.2em;'>Reflective Questioning</strong><br>
+            <p style='font-size: 1.1em; line-height: 1.8;'>
+                Use open-ended questions to help children think deeper and express themselves. 
+                For example: 'What do you think about...?'
+            </p>
+        </div>
+    """
+}
+
+# Updated Strategy Hints
+STRATEGY_HINTS = {
+    "Active Listening": [
+        "- Repeat back what your child says to show understanding",
+        "- Use phrases like 'I hear that you...' or 'It sounds like...'",
+        "- Notice and name emotions: 'You seem frustrated'",
+        "- Give your child full attention, maintain eye contact",
+        "- Avoid interrupting or finishing their sentences",
+        "- Acknowledge their perspective before sharing yours"
+    ],
+    "Positive Reinforcement": [
+        "- Be specific about what behavior you're praising",
+        "- Focus on effort rather than outcome",
+        "- Use a warm, enthusiastic tone",
+        "- Catch them being good and acknowledge it immediately",
+        "- Describe the positive impact of their behavior",
+        "- Use 'I notice' statements when praising"
+    ],
+    "Reflective Questioning": [
+        "- Ask 'what' and 'how' questions instead of 'why'",
+        "- Use open-ended questions to encourage sharing",
+        "- Follow up their answers with curious questions",
+        "- Avoid leading questions or suggesting answers",
+        "- Show genuine interest in their perspective",
+        "- Give them time to think and respond"
+    ]
+}
+
+# Age-specific responses dictionary - add this in Part 2 after STRATEGY_HINTS
+AGE_SPECIFIC_RESPONSES = {
+    "3-5 years": {
+        "cooperative": [
+            "Okay, I'll try...",
+            "Can you help me?",
+            "I want to be good!",
+            "Like this, Mommy/Daddy?",
+            "It's hard!",
+            "I can try that!",
+            "*showing effort* Is this better?",
+            "*smiling* Can you help me?",
+            "*wiping tears* I'm sorry",
+            "*picking up toys* I can clean up!"
+        ],
+        "defiant": [
+            "No! No! NO!",
+            "*throwing self on floor* I DON'T WANNA!",
+            "*covering ears* La la la, can't hear you!",
+            "You're not the boss of me!",
+            "I want MY way!",
+            "NO NO NO!",
+            "*turning away* Not listening!",
+            "Don't want to!",
+            "*flopping on floor* It's not FAIR!",
+            "*pushing away* Leave me alone!"
+        ],
+        "distracted": [
+            "Look, my toy is dancing!",
+            "Can I have a snack?",
+            "*spinning around* Wheeeee!",
+            "But I wanna play with my blocks!",
+            "Is it time for cartoons?",
+            "But my show is on...",
+            "*spinning in circles* Wheeee!",
+            "*building with blocks* Just one more tower?",
+            "*drawing* Need to finish coloring!",
+            "But I'm not done yet!",
+            "*watching TV* After this part..."
+        ]
+    },
+    "6-9 years": {
+        "cooperative": [
+            "I'll clean up after I finish this part.",
+            "Sorry, I didn't mean to...",
+            "I promise I'll do better.",
+            "Will you show me how?",
+            "*putting down game* Okay, I understand",
+            "I know I should... *starting task*",
+            "*organizing things* I'm helping!",
+            "You're right... *beginning task*",
+            "*showing work* Is this better?"
+        ],
+        "defiant": [
+            "But that's not fair! Jamie never has to!",
+            "*arms crossed* You can't make me!",
+            "I hate these rules!",
+            "You never let me do anything fun!",
+            "Well, Sarah's parents let her!",
+            "But Emma's mom lets her!",
+            "*rolling eyes* This isn't fair!",
+            "You NEVER let me do anything fun!",
+            "*slamming door* Leave me alone!",
+            "Why do I always have to?",
+            "*arms crossed* Make me!",
+            "You're the worst! *storming off*"
+        ],
+        "distracted": [
+            "But first can I just...",
+            "Wait, I forgot to tell you about...",
+            "Can we do it later? I'm almost finished with...",
+            "Oh! I just remembered something!",
+            "*playing game* Just need to save...",
+            "But first can I...",
+            "Did you know that... *changing subject*",
+            "*watching YouTube* Almost done!",
+            "Wait, I forgot to tell you about...",
+            "*fixated on phone* In a minute..."
+        ]
+    },
+    "10-12 years": {
+        "cooperative": [
+            "Fine, I get it. Just give me a minute.",
+            "I know, I know. I'm going.",
+            "Okay, but can we talk about it first?",
+            "I understand, but...",
+            "I'll do it, just let me finish this.",
+            "*putting phone down* Okay, I'm listening",
+            "Can we talk about it?",
+            "*nodding* That's fair",
+            "I understand... *complying*",
+            "*showing compromise* How about this?"
+        ],
+        "defiant": [
+            "This is so unfair! You never understand!",
+            "Everyone else gets to!",
+            "*slamming door* Leave me alone!",
+            "You're ruining everything!",
+            "*eye roll* Whatever",
+            "This is SO unfair! *texting friends*",
+            "You don't understand ANYTHING!",
+            "*slamming door* I hate this!",
+            "Everyone else's parents...",
+            "*storming off* You're ruining my life!",
+            "This is stupid! *throwing phone*"
+        ],
+        "distracted": [
+            "Yeah, just one more level...",
+            "Hold on, I'm texting...",
+            "In a minute... I'm doing something.",
+            "But I'm in the middle of something!",
+            "*texting* Just one sec...",
+            "But my friends are waiting online...",
+            "*watching TikTok* Almost done",
+            "*gaming* Can't pause multiplayer!",
+            "Hold on, I'm in the middle of...",
+            "*scrolling phone* Five more minutes?"
+        ]
+    }
+}
+
+# Initialize session state with improved type handling
+def init_session_state():
+    if 'run_id' not in st.session_state:
+        st.session_state['run_id'] = str(uuid4())
+    if 'agentState' not in st.session_state:
+        st.session_state['agentState'] = "start"
+    if 'consent' not in st.session_state:
+        st.session_state['consent'] = False
+    if 'exp_data' not in st.session_state:
+        st.session_state['exp_data'] = True
+    if 'llm_model' not in st.session_state:
+        st.session_state['llm_model'] = "gpt-4"
+    if 'simulation_ended' not in st.session_state:
+        st.session_state['simulation_ended'] = False
+    if 'stored_responses' not in st.session_state:
+        st.session_state['stored_responses'] = {}
+    if 'show_hints' not in st.session_state:
+        st.session_state['show_hints'] = False
+    if 'paused' not in st.session_state:
+        st.session_state['paused'] = False
+    if 'info_submitted' not in st.session_state:
+        st.session_state['info_submitted'] = False
+    if 'conversation_history' not in st.session_state:
+        st.session_state['conversation_history'] = []
+    if 'child_mood' not in st.session_state:
+        st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
+    if 'turn_count' not in st.session_state:
+        st.session_state['turn_count'] = 0
+    if 'strategy' not in st.session_state:
+        st.session_state['strategy'] = "Active Listening"
+    if 'simulation_id' not in st.session_state:
+        st.session_state['simulation_id'] = str(uuid4())
+
+def track_feature_visit(feature_name):
+    if 'visited_features' not in st.session_state:
+        st.session_state.visited_features = set()
+    st.session_state.visited_features.add(feature_name)
+
+# Custom CSS with improved styling
+CUSTOM_CSS = """
     <style>
     /* General Typography */
     body {
@@ -76,380 +419,85 @@ st.markdown("""
         color: #1a1a1a;
         margin-right: auto;
     }
-    </style>
-""", unsafe_allow_html=True)
 
-import os
-import json
-import re
-import openai
-import sqlite3
-from datetime import datetime
-import random
-from sqlalchemy import create_engine, Column, Integer, String, JSON, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker
-from langsmith import Client
-from langsmith.run_helpers import traceable
-
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_openai import OpenAI
-from langchain_community.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import StringPromptTemplate
-from langchain.chains import ConversationChain, LLMChain
-from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent, AgentOutputParser
-from langchain.schema import HumanMessage, AIMessage, AgentAction, AgentFinish
-from langchain.output_parsers import StructuredOutputParser, ResponseSchema
-from langchain_community.chat_message_histories import StreamlitChatMessageHistory
-from langchain_community.callbacks.manager import get_openai_callback
-
-from streamlit_feedback import streamlit_feedback
-from langsmith import Client
-from langsmith.run_helpers import traceable
-from langsmith.run_helpers import get_current_run_tree
-
-# Load environment variables
-from dotenv import load_dotenv
-
-load_dotenv()
-api_key = os.getenv('OPENAI_API_KEY')
-openai.api_key = api_key
-
-# Import citation variables
-from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
-from communication_strategies_citations import COMMUNICATION_STRATEGIES_CITATIONS
-from simulation_citations import SIMULATION_CITATIONS
-from Website_citations import WEBSITE_CITATIONS
-from Active_listening_citations import ACTIVE_LISTENING_CITATIONS
-from i_messages_citations import I_MESSAGES_CITATIONS
-from positive_reinforcement import POSITIVE_REINFORCEMENT_CITATIONS
-from Reflective_questioning import REFLECTIVE_QUESTIONING_CITATIONS
-
-# Set up environment variables and API keys
-os.environ["OPENAI_API_KEY"] = st.secrets['OPENAI_API_KEY']
-openai.api_key = os.environ["OPENAI_API_KEY"]
-
-os.environ["LANGCHAIN_API_KEY"] = st.secrets['LANGCHAIN_API_KEY']
-os.environ["LANGCHAIN_PROJECT"] = st.secrets['LANGCHAIN_PROJECT']
-os.environ["LANGCHAIN_PROJECT"] = "Parenting agent2"
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-
-# Initialize LangSmith Client
-smith_client = Client()
-
-# Database setup
-DATABASE_URL = "sqlite:///parenting_app.db"
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# Database Models
-class Reflection(Base):
-    __tablename__ = "reflections"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, index=True)
-    type = Column(String)
-    content = Column(JSON)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    langsmith_run_id = Column(String)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-# LangSmith Helper Functions
-def create_langsmith_run(name, inputs, fallback_id=None):
-    try:
-        run = smith_client.create_run(
-            run_type="chain",
-            name=name,
-            inputs=inputs
-        )
-        return run.id if run else fallback_id
-    except Exception as e:
-        print(f"Error creating LangSmith run: {e}")
-        return fallback_id
-
-def update_langsmith_run(run_id, outputs):
-    if not run_id:
-        return
-    try:
-        smith_client.update_run(run_id, outputs=outputs)
-    except Exception as e:
-        print(f"Error updating LangSmith run: {e}")
-
-STRATEGY_EXPLANATIONS = {
-    "Active Listening": """
-        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
-            👂 <strong style='color: #2563eb; font-size: 1.2em;'>Active Listening</strong><br>
-            <p style='font-size: 1.1em; line-height: 1.8;'>
-                Fully focus on, understand, and remember what your child is saying. 
-                This helps them feel heard and valued.
-            </p>
-        </div>
-    """,
-    "Positive Reinforcement": """
-        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
-            ⭐ <strong style='color: #2563eb; font-size: 1.2em;'>Positive Reinforcement</strong><br>
-            <p style='font-size: 1.1em; line-height: 1.8;'>
-                Encourage desired behaviors through specific praise or rewards, 
-                helping build self-esteem and motivation.
-            </p>
-        </div>
-    """,
-    "Reflective Questioning": """
-        <div class='strategy-explanation' style='background-color: #f3f4f6; border-left: 4px solid #2563eb;'>
-            ❓ <strong style='color: #2563eb; font-size: 1.2em;'>Reflective Questioning</strong><br>
-            <p style='font-size: 1.1em; line-height: 1.8;'>
-                Use open-ended questions to help children think deeper and express themselves. 
-                For example: 'What do you think about...?'
-            </p>
-        </div>
-    """
-}
-
-STRATEGY_HINTS = {
-    "Active Listening": [
-        "- Repeat back what your child says to show understanding",
-        "- Use phrases like 'I hear that you...' or 'It sounds like...'",
-        "- Notice and name emotions: 'You seem frustrated'",
-        "- Give your child full attention, maintain eye contact",
-        "- Avoid interrupting or finishing their sentences",
-        "- Acknowledge their perspective before sharing yours"
-    ],
-    "Positive Reinforcement": [
-        "- Be specific about what behavior you're praising",
-        "- Focus on effort rather than outcome",
-        "- Use a warm, enthusiastic tone",
-        "- Catch them being good and acknowledge it immediately",
-        "- Describe the positive impact of their behavior",
-        "- Use 'I notice' statements when praising"
-    ],
-    "Reflective Questioning": [
-        "- Ask 'what' and 'how' questions instead of 'why'",
-        "- Use open-ended questions to encourage sharing",
-        "- Follow up their answers with curious questions",
-        "- Avoid leading questions or suggesting answers",
-        "- Show genuine interest in their perspective",
-        "- Give them time to think and respond"
-    ]
-}
-
-# Age-specific responses dictionary
-AGE_SPECIFIC_RESPONSES = {
-    "3-5 years": {
-        "cooperative": [
-            "Okay, I'll try...",
-            "Can you help me?",
-            "I want to be good!",
-            "Like this, Mommy/Daddy?",
-            "It's hard!"
-            "I can try that!",
-            "*showing effort* Is this better?",
-            "*smiling* Can you help me?",
-            "*wiping tears* I'm sorry",
-            "*picking up toys* I can clean up!"
-        ],
-        "defiant": [
-            "No! No! NO!",
-            "*throwing self on floor* I DON'T WANNA!",
-            "*covering ears* La la la, can't hear you!",
-            "You're not the boss of me!",
-            "I want MY way!"
-            "NO NO NO!",
-            "*turning away* Not listening!",
-            "Don't want to!",
-            "*flopping on floor* It's not FAIR!",
-            "*pushing away* Leave me alone!"
-        ],
-        "distracted": [
-            "Look, my toy is dancing!",
-            "Can I have a snack?",
-            "*spinning around* Wheeeee!",
-            "But I wanna play with my blocks!",
-            "Is it time for cartoons?"
-            "But my show is on...",
-            "*spinning in circles* Wheeee!",
-            "*building with blocks* Just one more tower?",
-            "*drawing* Need to finish coloring!",
-            "But I'm not done yet!",
-            "*watching TV* After this part..."
-        ]
-    },
-    "6-9 years": {
-        "cooperative": [
-            "I'll clean up after I finish this part.",
-            "Sorry, I didn't mean to...",
-            "I promise I'll do better.",
-            "Will you show me how?"
-            "*putting down game* Okay, I understand",
-            "I know I should... *starting task*",
-            "*organizing things* I'm helping!",
-            "You're right... *beginning task*",
-            "*showing work* Is this better?",
-        ],
-        "defiant": [
-            "But that's not fair! Jamie never has to!",
-            "*arms crossed* You can't make me!",
-            "I hate these rules!",
-            "You never let me do anything fun!",
-            "Well, Sarah's parents let her!"
-            "But Emma's mom lets her!",
-            "*rolling eyes* This isn't fair!",
-            "You NEVER let me do anything fun!",
-            "*slamming door* Leave me alone!",
-            "Why do I always have to?",
-            "*arms crossed* Make me!",
-            "You're the worst! *storming off*",
-        ],
-        "distracted": [
-            "But first can I just...",
-            "Wait, I forgot to tell you about...",
-            "Can we do it later? I'm almost finished with...",
-            "Oh! I just remembered something!"
-            "*playing game* Just need to save...",
-            "But first can I...",
-            "Did you know that... *changing subject*",
-            "*watching YouTube* Almost done!",
-            "Wait, I forgot to tell you about...",
-            "*fixated on phone* In a minute...",
-        ]
-    },
-    "10-12 years": {
-        "cooperative": [
-            "Fine, I get it. Just give me a minute.",
-            "I know, I know. I'm going.",
-            "Okay, but can we talk about it first?",
-            "I understand, but...",
-            "I'll do it, just let me finish this."
-            "*putting phone down* Okay, I'm listening",
-            "Can we talk about it?",
-            "*nodding* That's fair",
-            "I understand... *complying*",
-            "*showing compromise* How about this?",
-        ],
-        "defiant": [
-            "This is so unfair! You never understand!",
-            "Everyone else gets to!",
-            "*slamming door* Leave me alone!",
-            "You're ruining everything!"
-            "*eye roll* Whatever",
-            "This is SO unfair! *texting friends*",
-            "You don't understand ANYTHING!",
-            "*slamming door* I hate this!",
-            "Everyone else's parents...",
-            "*storming off* You're ruining my life!",
-            "This is stupid! *throwing phone*",
-        ],
-        "distracted": [
-            "Yeah, just one more level...",
-            "Hold on, I'm texting...",
-            "In a minute... I'm doing something.",
-            "But I'm in the middle of something!"
-            "*texting* Just one sec...",
-            "But my friends are waiting online...",
-            "*watching TikTok* Almost done",
-            "*gaming* Can't pause multiplayer!",
-            "Hold on, I'm in the middle of...",
-            "*scrolling phone* Five more minutes?",
-        ]
+    /* Form Styling */
+    .stTextArea > div > div > textarea {
+        font-size: 1.1em;
+        line-height: 1.6;
+        padding: 1em;
+        border: 2px solid #f3f4f6;
+        border-radius: 0.5em;
     }
-}
+
+    .stTextArea > div > div > textarea:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+    }
+    </style>
+"""
+
+# Apply custom CSS
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # Initialize session state
-if 'run_id' not in st.session_state: 
-    st.session_state['run_id'] = None
-if 'agentState' not in st.session_state: 
-    st.session_state['agentState'] = "start"
-if 'consent' not in st.session_state: 
-    st.session_state['consent'] = False
-if 'exp_data' not in st.session_state: 
-    st.session_state['exp_data'] = True
-if 'llm_model' not in st.session_state:
-    st.session_state['llm_model'] = "gpt-4"
-if 'simulation_ended' not in st.session_state:
-    st.session_state['simulation_ended'] = False
-if 'stored_responses' not in st.session_state:
-    st.session_state['stored_responses'] = {}
-if 'show_hints' not in st.session_state:  
-    st.session_state['show_hints'] = False
-if 'paused' not in st.session_state:  
-    st.session_state['paused'] = False
+init_session_state()
 
-# Setup chat memory
-msgs = StreamlitChatMessageHistory(key="langchain_messages")
-memory = ConversationBufferMemory(memory_key="history", chat_memory=msgs)
+@traceable(name="generate_child_response")
+def generate_child_response(conversation_history, child_age, situation, mood, strategy, parent_response):
+    child_name = st.session_state.get('child_name', 'the child')
+    response_key = f"{parent_response}_{child_age}_{mood}_{strategy}"
+    
+    if response_key in st.session_state['stored_responses']:
+        return st.session_state['stored_responses'][response_key]
+    
+    messages = [
+        {"role": "system", "content": f"""You are {child_name}, a {child_age}-year-old child responding to your parent.
+        Current mood: {mood}
+        Situation: {situation}
+        Recent context: {' | '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])}
 
-def setup_database():
-    conn = sqlite3.connect('user_queries.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS queries
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  timestamp TEXT,
-                  user_query TEXT,
-                  bot_response TEXT)''')
-    conn.commit()
-    conn.close()
+        Use these age-appropriate response patterns:
+        {AGE_SPECIFIC_RESPONSES[child_age][mood]}
 
-setup_database()
+        IMPORTANT GUIDELINES:
+        1. Always respond as {child_name} specifically
+        2. Use age-appropriate language for {child_age}
+        3. Show {mood} mood through words and actions
+        4. Keep responses very short (1-2 sentences)
+        5. Include emotional reactions (crying, stomping, etc.)
+        6. Use simple vocabulary only
+        7. Never explain rationally or use adult phrasing
+        8. Reference siblings or friends when complaining about fairness
+        9. Show raw emotion rather than logical thinking
+        10. Sometimes include physical actions in *asterisks*
+        """}
+    ]
 
-def save_reflection(user_id, reflection_type, content):
-    if not user_id or user_id == 'Anonymous':
-        st.warning("Please enter your name in the sidebar to save reflections.")
-        return False
-        
     try:
-        db = SessionLocal()
-        
-        # Ensure content is JSON serializable
-        if isinstance(content, dict):
-            content_str = json.dumps(content)
-        else:
-            content_str = json.dumps({"content": content})
-        
-        db_reflection = Reflection(
-            user_id=user_id,
-            type=reflection_type,
-            content=content_str,
-            langsmith_run_id=st.session_state.get('run_id'),
-            timestamp=datetime.utcnow()
+        completion = openai.chat.completions.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=60
         )
+        response = completion.choices[0].message.content.strip()
         
-        db.add(db_reflection)
-        db.commit()
-        db.refresh(db_reflection)
-        
-        if st.session_state.get('run_id'):
+        if 'run_id' in st.session_state:
             update_langsmith_run(
                 st.session_state['run_id'],
                 {
-                    "reflection_saved": {
-                        "type": reflection_type,
-                        "content": content,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
+                    "parent_response": parent_response,
+                    "child_response": response,
+                    "strategy_used": strategy,
+                    "mood": mood
                 }
             )
         
-        return True
-        
+        st.session_state['stored_responses'][response_key] = response
+        return response
     except Exception as e:
-        print(f"Error saving reflection: {str(e)}")
-        st.error(f"Failed to save reflection: {str(e)}")
-        return False
-    finally:
-        db.close()
-
-def load_reflections(user_id):
-    db = SessionLocal()
-    try:
-        reflections = db.query(Reflection).filter(Reflection.user_id == user_id).order_by(Reflection.timestamp.desc()).all()
-        return reflections
-    except Exception as e:
-        print(f"Error loading reflections: {str(e)}")
-        return []
-    finally:
-        db.close()
+        print(f"Error generating child response: {e}")
+        return "I don't know what to say..."
 
 def provide_realtime_feedback(parent_response, strategy):
     feedback_prompts = {
@@ -482,92 +530,6 @@ def provide_realtime_feedback(parent_response, strategy):
     
     return strategy_feedback
 
-@traceable(name="generate_child_response")
-def generate_child_response(conversation_history, child_age, situation, mood, strategy, parent_response):
-    child_name = st.session_state.get('child_name', 'the child')
-    response_key = f"{parent_response}_{child_age}_{mood}_{strategy}"
-    
-    if response_key in st.session_state['stored_responses']:
-        return st.session_state['stored_responses'][response_key]
-    
-    messages = [
-        {"role": "system", "content": f"""You are {child_name}, a {child_age}-year-old child responding to your parent.
-        Current mood: {mood}
-        Situation: {situation}
-        Recent context: {' | '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])}
-
-        Use these age-appropriate response patterns:
-        {AGE_SPECIFIC_RESPONSES[child_age][mood]}
-
-        IMPORTANT GUIDELINES:
-        1. Always respond as {child_name} specifically
-        2. Use age-appropriate language for {child_age}
-        3. Show {mood} mood through words and actions
-        4. Keep responses very short (1-2 sentences)
-        5. Include emotional reactions (crying, stomping, etc.)
-        6. Use simple vocabulary only
-        7. Never explain rationally or use adult phrasing
-        8. Reference siblings or friends when complaining about fairness
-        9. Show raw emotion rather than logical thinking
-        10. Sometimes include physical actions in *asterisks*
-        
-        Analyze parent's response:
-        - If stern/commanding: Show appropriate resistance or compliance based on mood
-        - If supportive/understanding: React with more openness
-        - If asking questions: Give age-appropriate answers that match emotional state
-        - Stay consistent with your previous responses in the conversation
-
-        Parent's response to react to: {parent_response}"""}
-    ]
-
-    try:
-        completion = openai.chat.completions.create(
-            model="gpt-4",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=60
-        )
-        response = completion.choices[0].message.content.strip()
-        
-        if 'run_id' in st.session_state:
-            update_langsmith_run(
-                st.session_state['run_id'],
-                {
-                    "parent_response": parent_response,
-                    "child_response": response,
-                    "strategy_used": strategy,
-                    "mood": mood
-                }
-            )
-        
-        st.session_state['stored_responses'][response_key] = response
-        return response
-    except Exception as e:
-        print(f"Error generating child response: {e}")
-        return "I don't know what to say..."
-
-def generate_conversation_starters(situation):
-    prompt = f"""
-    SYSTEM
-    Use the provided citations delimited by triple quotes to answer questions. If the answer cannot be found in the citations, write "I could not find an answer."
-    USER
-    Academic Citations:
-    {CONVERSATION_STARTER_CITATIONS}
-
-    Website Resources:
-    {WEBSITE_CITATIONS}
-
-    Question: Provide conversation starters for the following situation with a child: {situation}
-    """
-    completion = openai.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return completion.choices[0].message.content.strip()
-
 def reformulate_phrase(phrase, strategy):
     messages = [
         {"role": "system", "content": f"You are a parenting communication expert. Reformulate the given phrase using {strategy} principles. Keep the same meaning but change the delivery."},
@@ -586,71 +548,171 @@ def reformulate_phrase(phrase, strategy):
         print(f"Error reformulating phrase: {e}")
         return None
 
+def generate_conversation_starters(situation):
+    prompt = f"""
+    SYSTEM
+    Use the provided citations delimited by triple quotes to answer questions. If the answer cannot be found in the citations, write "I could not find an answer."
+    USER
+    Academic Citations:
+    {CONVERSATION_STARTER_CITATIONS}
+
+    Website Resources:
+    {WEBSITE_CITATIONS}
+
+    Question: Provide conversation starters for the following situation with a child: {situation}
+    """
+    try:
+        completion = openai.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error generating conversation starters: {e}")
+        return "Unable to generate conversation starters at this time."
+
+def save_reflection(user_id, reflection_type, content):
+    if not user_id:
+        st.warning("Please ensure your Prolific ID is entered correctly.")
+        return False
+        
+    try:
+        db = SessionLocal()
+        
+        content_str = json.dumps(content) if isinstance(content, dict) else json.dumps({"content": str(content)})
+        
+        db_reflection = Reflection(
+            user_id=user_id,
+            type=reflection_type,
+            content=content_str,
+            langsmith_run_id=st.session_state.get('run_id'),
+            timestamp=datetime.utcnow()
+        )
+        
+        db.add(db_reflection)
+        db.commit()
+        db.refresh(db_reflection)
+        
+        print(f"Successfully saved reflection for Prolific ID: {user_id}")
+        return True
+        
+    except Exception as e:
+        print(f"Error saving reflection for Prolific ID {user_id}: {str(e)}")
+        st.error(f"Failed to save reflection: {str(e)}")
+        return False
+    finally:
+        db.close()
+
+def load_reflections(user_id):
+    if not user_id:
+        return []
+        
+    db = SessionLocal()
+    try:
+        reflections = db.query(Reflection).filter(
+            Reflection.user_id == user_id
+        ).order_by(Reflection.timestamp.desc()).all()
+        return reflections
+    except Exception as e:
+        print(f"Error loading reflections: {str(e)}")
+        return []
+    finally:
+        db.close()
+
+def reset_simulation():
+    st.session_state['conversation_history'] = []
+    st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
+    st.session_state['turn_count'] = 0
+    st.session_state['strategy'] = "Active Listening"
+    st.session_state['simulation_ended'] = False
+    st.session_state['simulation_id'] = str(uuid4())
+    st.session_state['stored_responses'].clear()
+    st.session_state['run_id'] = str(uuid4())
+
 def show_info_screen():
     st.markdown("<h1 class='main-header'>Welcome to Parenting Support Bot</h1>", unsafe_allow_html=True)
     
     with st.form(key='parent_info_form'):
         st.markdown("<h2 class='section-header'>Please Tell Us About You</h2>", unsafe_allow_html=True)
+        
+        st.markdown("""
+            <p class='description-text'>
+                Please enter your <b>Prolific ID</b> (24-character identifier from your Prolific account)
+            </p>
+        """, unsafe_allow_html=True)
+        
         parent_name = st.text_input(
-            "Prolific ID",
-            placeholder="Enter your Prolific ID...",
+            label="Prolific ID",
+            placeholder="Enter your 24-character Prolific ID...",
+            help="This is the ID assigned to you by Prolific, found in your Prolific account"
         )
+        
         child_name = st.text_input(
-            "Child's Name",
-            placeholder="Enter your child's name...",
+            label="Child's Name",
+            placeholder="Enter your child's name..."
         )
         
         age_ranges = ["3-5 years", "6-9 years", "10-12 years"]
-        child_age = st.selectbox("Child's Age Range", age_ranges)
+        child_age = st.selectbox(
+            label="Child's Age Range",
+            options=age_ranges
+        )
         
-        st.markdown("<p class='description-text'>Describe the situation you'd like help with:</p>", 
-                   unsafe_allow_html=True)
         situation = st.text_area(
-            "",
+            label="Situation Description",
             placeholder="Type your situation here...",
-            height=120
+            height=120,
+            label_visibility="visible"
         )
         
         submit_button = st.form_submit_button("Start", use_container_width=True)
         
-        if submit_button and parent_name and child_name and situation:
-            st.session_state['parent_name'] = parent_name
-            st.session_state['child_name'] = child_name
-            st.session_state['child_age'] = child_age
-            st.session_state['situation'] = situation
-            st.session_state['info_submitted'] = True
-            st.rerun()
-        elif submit_button:
-            st.error("Please fill in all fields")
-            
+        if submit_button:
+            if not parent_name or not child_name or not situation:
+                st.error("Please fill in all fields")
+            elif len(parent_name) != 24:
+                st.error("Please enter a valid 24-character Prolific ID")
+            else:
+                st.session_state['parent_name'] = parent_name
+                st.session_state['child_name'] = child_name
+                st.session_state['child_age'] = child_age
+                st.session_state['situation'] = situation
+                st.session_state['info_submitted'] = True
+                st.rerun()
+
 @traceable(name="simulate_conversation")
 def simulate_conversation_streamlit(name, child_age, situation):
     name = st.session_state.get('parent_name', name)
     child_name = st.session_state.get('child_name', '')
     child_age = st.session_state.get('child_age', child_age)
     situation = st.session_state.get('situation', situation)
-    
-    st.markdown("<h1 class='main-header'>Parent-Child Role-Play Simulator</h1>", unsafe_allow_html=True)
-    
-    st.markdown(f"""
-        <div class='description-text'>
-            Welcome to the conversation simulator! Here you can practice different communication strategies 
-            with your child in a safe environment. Start by responding to the situation as you normally would, 
-            and then try incorporating different communication strategies to see how they might change the interaction.
-        </div>
-        
-        <div class='situation-text'>
-            <strong>Your situation:</strong> {situation}
-        </div>
-    """, unsafe_allow_html=True)
 
+    # Title
+    st.markdown("## Parent-Child Role-Play Simulator")
+
+    # Instructions in a clean container
+    with st.container():
+        st.markdown("""
+            #### How to use this simulator:
+            1. Start by responding naturally to your child's situation
+            2. Try different communication strategies to see their impact
+            3. Use the conversation controls to get hints or pause for reflection
+        """)
+
+    # Current situation in an info box
+    st.info(f"**Current Situation:** {situation}")
+
+    # Initialize conversation state
     if 'conversation_history' not in st.session_state:
         st.session_state['conversation_history'] = []
         st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
         st.session_state['turn_count'] = 0
         st.session_state['strategy'] = "Active Listening"
-        st.session_state['simulation_id'] = random.randint(1000, 9999)
-
+        st.session_state['simulation_id'] = str(uuid4())
+        
         run_id = create_langsmith_run(
             name="parenting_conversation",
             inputs={
@@ -659,13 +721,12 @@ def simulate_conversation_streamlit(name, child_age, situation):
                 "child_age": child_age,
                 "situation": situation,
                 "initial_strategy": "Active Listening"
-            },
-            fallback_id=str(st.session_state['simulation_id'])
+            }
         )
         st.session_state['run_id'] = run_id
 
-    # Strategy selection with improved layout
-    st.markdown("<h2 class='section-header'>Choose your communication strategy:</h2>", unsafe_allow_html=True)
+    # Strategy selection
+    st.markdown("### Choose your communication strategy:")
     cols = st.columns(3)
     for i, (strategy, explanation) in enumerate(STRATEGY_EXPLANATIONS.items()):
         with cols[i]:
@@ -685,8 +746,8 @@ def simulate_conversation_streamlit(name, child_age, situation):
     # Display current strategy explanation
     st.markdown(STRATEGY_EXPLANATIONS[st.session_state['strategy']], unsafe_allow_html=True)
 
-    # Action buttons with improved styling
-    st.markdown("<h3 class='subsection-header'>Conversation Controls</h3>", unsafe_allow_html=True)
+    # Action buttons
+    st.markdown("### Conversation Controls")
     action_cols = st.columns(3)
     with action_cols[0]:
         if st.button("⏸️ Pause/Resume", use_container_width=True):
@@ -704,7 +765,7 @@ def simulate_conversation_streamlit(name, child_age, situation):
                     if reformulated:
                         st.info(f"Reformulated response suggestion:\n\n{reformulated}")
 
-    # If paused, show reflection prompts
+    # Handle pause state
     if st.session_state['paused']:
         st.info("""
         Take a moment to reflect:
@@ -722,7 +783,7 @@ def simulate_conversation_streamlit(name, child_age, situation):
         hints = STRATEGY_HINTS[st.session_state['strategy']]
         st.info("\n".join(hints))
 
-    # Display conversation with improved formatting
+    # Display conversation
     st.markdown("<h3 class='subsection-header'>Conversation:</h3>", unsafe_allow_html=True)
     for msg in st.session_state['conversation_history']:
         col1, col2 = st.columns([8, 4])
@@ -737,13 +798,14 @@ def simulate_conversation_streamlit(name, child_age, situation):
             if msg['role'] == 'parent' and 'feedback' in msg:
                 st.info(f"💡 {msg['feedback']}")
 
-    # Parent's input section with placeholder text
+    # Parent's input section
     with st.form(key=f'parent_input_form_{st.session_state["simulation_id"]}_{st.session_state["turn_count"]}'):
         user_input = st.text_area(
-            "Your response:",
-            placeholder="Type your response here...",
+            label="Your response",
+            placeholder="How would you start this conversation with your child? Type here...",
             key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
-            height=100
+            height=100,
+            label_visibility="visible"
         )
         submit_cols = st.columns(2)
         with submit_cols[0]:
@@ -751,6 +813,10 @@ def simulate_conversation_streamlit(name, child_age, situation):
         with submit_cols[1]:
             end_button = st.form_submit_button("End Conversation", use_container_width=True, type="secondary")
 
+    # Handle user input
+    handle_conversation_input(send_button, end_button, user_input, child_age, situation)
+
+def handle_conversation_input(send_button, end_button, user_input, child_age, situation):
     if send_button and user_input:
         feedback = provide_realtime_feedback(user_input, st.session_state['strategy'])
         st.session_state['conversation_history'].append({
@@ -809,9 +875,24 @@ def simulate_conversation_streamlit(name, child_age, situation):
 
 def end_simulation(conversation_history, child_age, strategy):
     st.session_state['simulation_ended'] = True
+    
+    if 'parent_name' not in st.session_state:
+        st.error("Error: Prolific ID not found. Please ensure you've entered your ID correctly.")
+        return
+        
+    prolific_id = st.session_state['parent_name']
+    
     st.write("The simulation has ended.")
 
-    # Add interaction playback
+    # Initialize strategies_used set
+    strategies_used = {strategy}  # Start with the current strategy
+    if conversation_history:
+        # Add any strategies used during the conversation
+        strategies_used.update(msg.get('strategy_used', strategy) 
+                             for msg in conversation_history 
+                             if msg.get('role') == 'parent' and msg.get('strategy_used'))
+
+    # Add interaction playback - only show header once
     st.markdown("<h2 class='section-header'>Conversation Playback</h2>", unsafe_allow_html=True)
     if conversation_history:
         for msg in conversation_history:
@@ -819,54 +900,41 @@ def end_simulation(conversation_history, child_age, strategy):
                 st.write(msg['content'])
                 if msg.get('feedback'):
                     st.info(f"💡 Feedback: {msg['feedback']}")
-
-        # Add communication pattern analysis
-        st.markdown("<h2 class='section-header'>Communication Pattern Analysis</h2>", unsafe_allow_html=True)
-        parent_messages = [msg for msg in conversation_history if msg['role'] == 'parent']
-        strategies_used = [msg.get('strategy_used', strategy) for msg in parent_messages]
-        
-        # Display strategy usage
-        st.write("**Strategy Usage:**")
-        for strategy_name, count in {s: strategies_used.count(s) for s in set(strategies_used)}.items():
-            st.write(f"- {strategy_name}: {count} times")
             
     st.markdown("<h2 class='section-header'>Final Reflection</h2>", unsafe_allow_html=True)
     
     with st.form(key='end_simulation_form'):
         current_reflection = {}
-        strategies_used = set(msg.get('strategy_used', strategy) for msg in conversation_history if msg.get('role') == 'parent')
         
         for strategy_used in strategies_used:
             current_reflection[f"How effective was {strategy_used} in this conversation?"] = st.text_area(
-                f"How effective was {strategy_used} in this conversation?",
+                label=f"How effective was {strategy_used} in this conversation?",
                 height=100,
-                key=f"reflection_strategy_{strategy_used}"
+                key=f"reflection_strategy_{strategy_used}",
+                label_visibility="visible"
             )
         
         current_reflection["What did you learn about your child's perspective?"] = st.text_area(
-            "What did you learn about your child's perspective?",
+            label="What did you learn about your child's perspective?",
             height=100,
-            key="reflection_perspective"
+            key="reflection_perspective",
+            label_visibility="visible"
         )
         
         current_reflection["What would you do differently next time?"] = st.text_area(
-            "What would you do differently next time?",
+            label="What would you do differently next time?",
             height=100,
-            key="reflection_improvements"
+            key="reflection_improvements",
+            label_visibility="visible"
         )
         
-        submit_button = st.form_submit_button("Save Reflection", use_container_width=True)
+        submit_button = st.form_submit_button("Save Reflection")
     
     if submit_button:
         if not any(answer.strip() for answer in current_reflection.values()):
             st.warning("Please fill in at least one reflection question before saving.")
             return
             
-        user_id = st.session_state.get('parent_name', 'Anonymous')
-        if user_id == 'Anonymous':
-            st.warning("Please enter your name in the sidebar to save reflections.")
-            return
-
         reflection_data = {
             'reflection_content': current_reflection,
             'strategies_used': list(strategies_used),
@@ -877,30 +945,15 @@ def end_simulation(conversation_history, child_age, strategy):
             }
         }
         
-        update_langsmith_run(
-            st.session_state['run_id'],
-            {"final_reflection": reflection_data}
-        )
-        
-        success = save_reflection(user_id, 'end_simulation', reflection_data)
+        success = save_reflection(prolific_id, 'end_simulation', reflection_data)
         
         if success:
             st.success("✨ Reflection saved successfully! View it in the 'View Reflections' tab.")
-            if st.button("Start New Conversation", use_container_width=True):
+            if st.button("Start New Conversation"):
                 reset_simulation()
                 st.rerun()
         else:
             st.error("Failed to save reflection. Please try again.")
-
-def reset_simulation():
-    st.session_state['conversation_history'] = []
-    st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
-    st.session_state['turn_count'] = 0
-    st.session_state['strategy'] = "Active Listening"
-    st.session_state['simulation_ended'] = False
-    st.session_state['simulation_id'] = random.randint(1000, 9999)
-    st.session_state['stored_responses'].clear()
-    st.session_state['run_id'] = None
 
 @traceable(name="display_advice")
 def display_advice(parent_name, child_age, situation):
@@ -914,8 +967,7 @@ def display_advice(parent_name, child_age, situation):
                         "parent_name": parent_name,
                         "child_age": child_age,
                         "situation": situation
-                    },
-                    fallback_id=str(random.randint(1000, 9999))
+                    }
                 )
 
                 messages = [
@@ -928,7 +980,6 @@ def display_advice(parent_name, child_age, situation):
                 )
                 
                 response = completion.choices[0].message.content
-                
                 update_langsmith_run(run_id, {"advice": response})
                 st.markdown(response)
         except Exception as e:
@@ -987,57 +1038,78 @@ def display_communication_techniques(situation):
     else:
         st.warning("Please describe the situation in the sidebar to get communication techniques.")
 
-def display_saved_reflections(user_id):
+def display_saved_reflections(prolific_id):
     st.markdown("<h2 class='section-header'>Your Saved Reflections</h2>", unsafe_allow_html=True)
     
-    if not user_id:
-        st.warning("Please enter your name in the sidebar first.")
+    if not prolific_id:
+        st.warning("Please ensure your Prolific ID is entered correctly to view reflections.")
         return
         
-    reflections = load_reflections(user_id)
+    print(f"Attempting to load reflections for Prolific ID: {prolific_id}")
     
-    if not reflections:
-        st.info("No reflections found. Complete a role-play simulation to save reflections.")
-        return
-    
-    st.write(f"Found {len(reflections)} saved reflection(s)")
-    
-    for reflection in reflections:
-        with st.expander(f"Reflection from {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
-            try:
-                content = json.loads(reflection.content)
-                if isinstance(content, dict):
-                    if 'reflection_content' in content:
-                        st.write("**Strategies used in this conversation:**")
-                        st.write(", ".join(content.get('strategies_used', [])))
-                        st.write("\n**Your Reflections:**")
-                        for question, answer in content['reflection_content'].items():
-                            if answer and answer.strip():
-                                st.markdown(f"""
-                                    <div class='reflection-item'>
-                                        <strong>{question}</strong><br>
-                                        {answer}
-                                    </div>
-                                    <hr>
-                                """, unsafe_allow_html=True)
-                    else:
-                        for question, answer in content.items():
-                            if answer and answer.strip():
-                                st.markdown(f"""
-                                    <div class='reflection-item'>
-                                        <strong>{question}</strong><br>
-                                        {answer}
-                                    </div>
-                                    <hr>
-                                """, unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"Error displaying reflection: {str(e)}")
+    db = SessionLocal()
+    try:
+        reflections = db.query(Reflection).filter(
+            Reflection.user_id == prolific_id
+        ).order_by(Reflection.timestamp.desc()).all()
+        
+        if not reflections:
+            st.info("No reflections found. Complete a role-play simulation and save your reflections to see them here.")
+            return
+        
+        st.write(f"Found {len(reflections)} saved reflection(s)")
+        
+        for reflection in reflections:
+            with st.expander(f"Reflection from {reflection.timestamp.strftime('%Y-%m-%d %H:%M')}"):
+                try:
+                    content = json.loads(reflection.content)
+                    if isinstance(content, dict):
+                        if 'reflection_content' in content:
+                            st.write("**Strategies used in this conversation:**")
+                            st.write(", ".join(content.get('strategies_used', [])))
+                            st.write("\n**Your Reflections:**")
+                            for question, answer in content['reflection_content'].items():
+                                if answer and answer.strip():
+                                    st.markdown(f"""
+                                        <div class='reflection-item'>
+                                            <strong>{question}</strong><br>
+                                            {answer}
+                                        </div>
+                                        <hr>
+                                    """, unsafe_allow_html=True)
+                        else:
+                            for question, answer in content.items():
+                                if answer and answer.strip():
+                                    st.markdown(f"""
+                                        <div class='reflection-item'>
+                                            <strong>{question}</strong><br>
+                                            {answer}
+                                        </div>
+                                        <hr>
+                                    """, unsafe_allow_html=True)
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing reflection content: {str(e)}")
+                    st.error("Error loading this reflection's content.")
+                except Exception as e:
+                    print(f"Error displaying reflection: {str(e)}")
+                    st.error("Error displaying this reflection.")
+    except Exception as e:
+        print(f"Database error while loading reflections: {str(e)}")
+        st.error("Error loading reflections from database.")
+    finally:
+        db.close()
 
 def main():
-    if 'info_submitted' not in st.session_state:
-        st.session_state['info_submitted'] = False
-        
-    if not st.session_state['info_submitted']:
+    # Initialize feature order and descriptions at the start of the function
+    feature_order = {
+        "Advice": "Get expert guidance on handling specific parenting situations based on evidence-based strategies.",
+        "Conversation Starters": "Receive help initiating difficult conversations with suggested opening phrases and questions.",
+        "Communication Techniques": "Discover helpful ways to talk with your child and get tips on how to give clear and simple answers.",
+        "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach.",
+        "View Reflections": "Review your saved insights and learning from previous practice sessions."
+    }
+
+    if not st.session_state.get('info_submitted', False):
         show_info_screen()
     else:
         with st.sidebar:
@@ -1058,94 +1130,91 @@ def main():
                 if 'run_id' in st.session_state:
                     st.session_state.pop('run_id')
                 st.rerun()
+
+        # Show tutorial if it's the first time
+        if 'show_tutorial' not in st.session_state:
+            st.session_state.show_tutorial = True
+            st.session_state.show_features = False
         
-        st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
-        
-        # Component descriptions
-        component_descriptions = {
-            "Advice": "Get expert guidance on handling specific parenting situations based on evidence-based strategies.",
-            "Conversation Starters": "Receive help initiating difficult conversations with suggested opening phrases and questions.",
-            "Communication Techniques": "Discover helpful ways to talk with your child and get tips on how to give clear and simple answers.",
-            "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach.",
-            "View Reflections": "Review your saved insights and learning from previous practice sessions."
-        }
+        # Display either tutorial or features
+        if st.session_state.show_tutorial:
+            st.markdown("# Welcome to the Parenting Support Bot! 🎉", unsafe_allow_html=True)
+            
+            st.markdown("""
+                This app is designed to help you develop effective parenting strategies through:
+            """)
+            
+            st.markdown("""
+                - 📚 **Expert Advice** - Get evidence-based parenting advice
+                - 💭 **Conversation Starters** - Learn how to begin difficult conversations
+                - 🗣️ **Communication Techniques** - Discover effective communication strategies
+                - 🎮 **Role-Play Simulation** - Practice conversations in a safe environment before speaking with your child
+                - 📝 **Learning Reflections** - Track your progress and insights through reflections 
+            """)
+            
+            st.markdown("""
+                We recommend exploring each feature in order, but feel free to use them however works best for you!
+            """)
+            
+            # Center the button using columns
+            col1, col2, col3 = st.columns([1,2,1])
+            with col2:
+                if st.button("Got it, let's start!", use_container_width=True):
+                    st.session_state.show_tutorial = False
+                    st.rerun()
+        else:
+            # Show main title after tutorial
+            st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
 
-        selected = st.radio(
-            "Choose an option:",
-            list(component_descriptions.keys()),
-            horizontal=True,
-            help="Select a tool that best matches your current needs"
-        )
+            # Feature selection
+            selected = st.radio(
+                "Choose an option:",
+                list(feature_order.keys()),
+                horizontal=True,
+                help="Select a tool that best matches your current needs",
+                label_visibility="visible"
+            )
 
-        # Display component description
-        st.info(component_descriptions[selected])
+            st.info(feature_order[selected])
 
-        if selected == "Advice":
-            display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
-        elif selected == "Conversation Starters":
-            display_conversation_starters(st.session_state['situation'])
-        elif selected == "Communication Techniques":
-            display_communication_techniques(st.session_state['situation'])
-        elif selected == "Role-Play Simulation":
-            simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
-        elif selected == "View Reflections":
-            display_saved_reflections(st.session_state['parent_name'])
+            # Track and display selected feature
+            if selected == "Advice":
+                track_feature_visit("advice")
+                display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+            elif selected == "Conversation Starters":
+                track_feature_visit("conversation_starters")
+                display_conversation_starters(st.session_state['situation'])
+            elif selected == "Communication Techniques":
+                track_feature_visit("communication_techniques")
+                display_communication_techniques(st.session_state['situation'])
+            elif selected == "Role-Play Simulation":
+                track_feature_visit("role_play")
+                simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+            elif selected == "View Reflections":
+                track_feature_visit("reflections")
+                display_saved_reflections(st.session_state['parent_name'])
 
-# Add additional CSS for reflection display
-st.markdown("""
-    <style>
-    .info-section {
-        background-color: #f3f4f6;
-        padding: 1.2em;
-        border-radius: 0.8em;
-        margin: 1em 0;
-        border: 1px solid #60a5fa;
-    }
-    
-    .reflection-item {
-        margin: 1.2em 0;
-        line-height: 1.8;
-        padding: 1em;
-        background-color: #f3f4f6;
-        border-left: 4px solid #2563eb;
-        border-radius: 0.5em;
-    }
-    
-    .stRadio > div {
-        display: flex;
-        gap: 1em;
-        flex-wrap: wrap;
-    }
-    
-    .stRadio > div > label {
-        padding: 0.8em 1.2em;
-        border-radius: 0.5em;
-        background-color: #f3f4f6;
-        flex: 1;
-        text-align: center;
-        transition: all 0.2s ease;
-    }
-    
-    .stRadio > div > label:hover {
-        background-color: #60a5fa;
-        color: white;
-    }
-    
-    /* Textarea styling */
-    .stTextArea > div > div > textarea {
-        font-size: 1.1em;
-        line-height: 1.6;
-        padding: 1em;
-        border: 2px solid #f3f4f6;
-        border-radius: 0.5em;
-    }
-    
-    .stTextArea > div > div > textarea:focus {
-        border-color: #2563eb;
-        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
-    }
-    </style>
-""", unsafe_allow_html=True)
+            # Add progress indicator in sidebar
+            if 'visited_features' in st.session_state:
+                st.sidebar.markdown("### Your Progress")
+                for feature in feature_order.keys():
+                    feature_key = feature.lower().replace(" ", "_")
+                    if feature_key in st.session_state.visited_features:
+                        st.sidebar.markdown(f"✅ {feature}")
+                    else:
+                        st.sidebar.markdown(f"◽ {feature}")
+
+def setup_database():
+    conn = sqlite3.connect('user_queries.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS queries
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  timestamp TEXT,
+                  user_query TEXT,
+                  bot_response TEXT)''')
+    conn.commit()
+    conn.close()
 
 if __name__ == "__main__":
+    setup_database()
     main()
