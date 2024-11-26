@@ -1,8 +1,9 @@
 import streamlit as st
 import os
+import openai
+from dotenv import load_dotenv
 import json
 import re
-import openai
 import sqlite3
 from datetime import datetime
 import random
@@ -33,9 +34,6 @@ from langsmith import Client
 from langsmith.run_helpers import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-# Load environment variables
-from dotenv import load_dotenv
-
 # Page configuration
 st.set_page_config(
     layout="wide", 
@@ -43,19 +41,40 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Load environment variables and API keys
-load_dotenv()
-api_key = os.getenv('OPENAI_API_KEY')
-openai.api_key = api_key
+# Environment Variables Setup
+def setup_environment():
+    load_dotenv()
+    
+    if hasattr(st, 'secrets'):
+        openai.api_key = st.secrets.get('OPENAI_API_KEY')
+        os.environ['OPENAI_API_KEY'] = st.secrets.get('OPENAI_API_KEY', '')
+        os.environ['LANGCHAIN_API_KEY'] = st.secrets.get('LANGCHAIN_API_KEY', '')
+        os.environ['LANGCHAIN_PROJECT'] = st.secrets.get('LANGCHAIN_PROJECT', 'Parenting agent2')
+        os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+        os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+    else:
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+        if not openai.api_key:
+            st.error('OpenAI API key not found! Please set it in your environment or Streamlit secrets.')
+            st.stop()
 
-os.environ["OPENAI_API_KEY"] = st.secrets['OPENAI_API_KEY']
-openai.api_key = os.environ["OPENAI_API_KEY"]
+# Call setup at start
+setup_environment()
 
-os.environ["LANGCHAIN_API_KEY"] = st.secrets['LANGCHAIN_API_KEY']
-os.environ["LANGCHAIN_PROJECT"] = st.secrets['LANGCHAIN_PROJECT']
-os.environ["LANGCHAIN_PROJECT"] = "Parenting agent2"
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+def check_api_keys():
+    """Verify that all required API keys are present"""
+    missing_keys = []
+    
+    if not openai.api_key:
+        missing_keys.append("OpenAI API Key")
+    
+    if not os.getenv('LANGCHAIN_API_KEY'):
+        missing_keys.append("LangChain API Key")
+        
+    if missing_keys:
+        st.error(f"Missing required API keys: {', '.join(missing_keys)}")
+        st.info("Please add the missing API keys to your Streamlit secrets or environment variables.")
+        st.stop()
 
 # Initialize LangSmith Client
 smith_client = Client()
