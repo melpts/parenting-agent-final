@@ -911,6 +911,15 @@ def handle_conversation_input(send_button: bool, end_button: bool, user_input: s
         }
         supabase_manager.save_simulation_data(simulation_data)
         
+        # Add parent's message to history
+        st.session_state['conversation_history'].append({
+            "role": "parent",
+            "content": user_input,
+            "id": len(st.session_state['conversation_history']),
+            "feedback": feedback,
+            "strategy_used": st.session_state['strategy']
+        })
+
         update_langsmith_run(
             st.session_state['run_id'],
             {
@@ -921,7 +930,7 @@ def handle_conversation_input(send_button: bool, end_button: bool, user_input: s
                 }
             }
         )
-        
+    
         # Generate child's response
         child_response = generate_child_response(
             st.session_state['conversation_history'],
