@@ -7,12 +7,32 @@ import warnings
 from datetime import datetime
 import random
 from uuid import UUID, uuid4
-from supabase import create_client, Client
 from typing import Optional, Dict, Any
+
+# Set page config as the first Streamlit command
+st.set_page_config(
+    layout="wide", 
+    page_title="Parenting Support Bot",
+    initial_sidebar_state="expanded"
+)
 
 # Suppress deprecation warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
+# Supabase import with error handling
+try:
+    from supabase import create_client, Client
+except ImportError:
+    st.error("""
+        Unable to import Supabase client. Please ensure the package is installed:
+        ```
+        pip install supabase
+        ```
+        If you're using Streamlit Cloud, verify that 'supabase' is in your requirements.txt file.
+    """)
+    st.stop()
+
+# Langchain imports
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_openai import OpenAI
 from langchain_community.chat_models import ChatOpenAI
@@ -25,12 +45,13 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_community.callbacks.manager import get_openai_callback
 
+# Additional third-party imports
 from streamlit_feedback import streamlit_feedback
 from langsmith import Client
 from langsmith.run_helpers import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-# Import citations
+# Citation imports
 from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
 from communication_strategies_citations import COMMUNICATION_STRATEGIES_CITATIONS
 from simulation_citations import SIMULATION_CITATIONS
@@ -42,64 +63,6 @@ from Reflective_questioning import REFLECTIVE_QUESTIONING_CITATIONS
 
 # Initialize LangSmith Client
 smith_client = Client()
-
-# Page configuration
-st.set_page_config(
-    layout="wide", 
-    page_title="Parenting Support Bot",
-    initial_sidebar_state="expanded"
-)
-import streamlit as st
-import os
-import openai
-from dotenv import load_dotenv
-import json
-import warnings
-from datetime import datetime
-import random
-from uuid import UUID, uuid4
-from supabase import create_client, Client
-from typing import Optional, Dict, Any
-
-# Suppress deprecation warnings
-warnings.filterwarnings('ignore', category=DeprecationWarning)
-
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_openai import OpenAI
-from langchain_community.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import StringPromptTemplate
-from langchain.chains import ConversationChain, LLMChain
-from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent, AgentOutputParser
-from langchain.schema import HumanMessage, AIMessage, AgentAction, AgentFinish
-from langchain.output_parsers import StructuredOutputParser, ResponseSchema
-from langchain_community.chat_message_histories import StreamlitChatMessageHistory
-from langchain_community.callbacks.manager import get_openai_callback
-
-from streamlit_feedback import streamlit_feedback
-from langsmith import Client
-from langsmith.run_helpers import traceable
-from langsmith.run_helpers import get_current_run_tree
-
-# Import citations
-from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
-from communication_strategies_citations import COMMUNICATION_STRATEGIES_CITATIONS
-from simulation_citations import SIMULATION_CITATIONS
-from Website_citations import WEBSITE_CITATIONS
-from Active_listening_citations import ACTIVE_LISTENING_CITATIONS
-from i_messages_citations import I_MESSAGES_CITATIONS
-from positive_reinforcement import POSITIVE_REINFORCEMENT_CITATIONS
-from Reflective_questioning import REFLECTIVE_QUESTIONING_CITATIONS
-
-# Initialize LangSmith Client
-smith_client = Client()
-
-# Page configuration
-st.set_page_config(
-    layout="wide", 
-    page_title="Parenting Support Bot",
-    initial_sidebar_state="expanded"
-)
 
 # Custom CSS
 CUSTOM_CSS = """
