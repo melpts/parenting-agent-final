@@ -895,18 +895,21 @@ def display_saved_reflections(prolific_id: str):
                 st.error("Error displaying reflection content.")
 
 def handle_conversation_input(send_button: bool, end_button: bool, user_input: str, child_age: str, situation: str):
-    """Handle user input during conversation"""
     if send_button and user_input:
         feedback = provide_realtime_feedback(user_input, st.session_state['strategy'])
         
-        # Add parent's message to history
-        st.session_state['conversation_history'].append({
-            "role": "parent",
-            "content": user_input,
-            "id": len(st.session_state['conversation_history']),
-            "feedback": feedback,
-            "strategy_used": st.session_state['strategy']
-        })
+        simulation_data = {
+            "user_id": st.session_state['parent_name'],
+            "simulation_data": {
+                "parent_message": user_input,
+                "strategy": st.session_state['strategy'],
+                "child_age": child_age,
+                "situation": situation,
+                "turn_count": st.session_state['turn_count']
+            },
+            "created_at": datetime.utcnow().isoformat()
+        }
+        supabase_manager.save_simulation_data(simulation_data)
         
         update_langsmith_run(
             st.session_state['run_id'],
