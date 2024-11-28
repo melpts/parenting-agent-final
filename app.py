@@ -417,7 +417,7 @@ def check_environment():
     missing = []
     if hasattr(st, 'secrets'):
         # Debug: Print available secrets (keys only, not values)
-        st.write("Available secrets:", list(st.secrets.keys()))
+        #st.write("Available secrets:", list(st.secrets.keys()))
         
         for secret in required_secrets:
             if not st.secrets.get(secret):
@@ -436,7 +436,8 @@ def setup_memory():
     memory = ConversationBufferMemory(
         chat_memory=msgs,
         return_messages=True,
-        memory_key="history"
+        memory_key="chat_history",  # Updated from "history"
+        output_key="output"  # Add this line
     )
     return memory
 
