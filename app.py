@@ -340,22 +340,22 @@ class SupabaseManager:
             return False
     
     def save_reflection(self, user_id: str, reflection_type: str, content: Dict[str, Any]) -> bool:
-        """Save reflection to Supabase"""
-        try:
-            data = {
-                "user_id": user_id,
-                "type": reflection_type,
-                "content": content,
-                "created_at": datetime.utcnow().isoformat(),
-                "langsmith_run_id": st.session_state.get('run_id')
-            }
-            
-            result = self.supabase.table('reflections').insert(data).execute()
-            return True if result.data else False
-        except Exception as e:
-            print(f"Error saving reflection: {e}")
-            return False
-    
+       try:
+          data = {
+            "user_id": user_id,
+            "type": reflection_type, 
+            "content": content,
+            "created_at": datetime.utcnow().isoformat(),
+            "langsmith_run_id": st.session_state.get('run_id')
+        }
+          print("Attempting to save reflection:", data)
+          result = self.supabase.table('reflections').insert(data).execute()
+          print("Save result:", result)
+          return True if result.data else False
+       except Exception as e:
+        print(f"Error saving reflection: {e}")
+        return False
+       
     def get_reflections(self, user_id: str) -> list:
         """Retrieve reflections for a user"""
         try:
@@ -372,14 +372,47 @@ class SupabaseManager:
     def save_simulation_data(self, simulation_data: Dict[str, Any]) -> bool:
         """Save simulation data to Supabase"""
         try:
+            print("Saving simulation data:", simulation_data)  # Add this debug line
             result = self.supabase.table('simulations').insert(simulation_data).execute()
+            print("Save result:", result)  # Add this debug line
             return True if result.data else False
         except Exception as e:
             print(f"Error saving simulation data: {e}")
             return False
+def view_all_simulations(self):
+    """Fetch all simulation records"""
+    try:
+        result = self.supabase.table('simulations').select("*").execute()
+        return result.data
+    except Exception as e:
+        print(f"Error fetching simulations: {e}")
+        return []
+def view_user_simulations(self, user_id: str):
+    """Fetch simulations for specific user"""
+    try:
+        result = self.supabase.table('simulations')\
+            .select("*")\
+            .eq('user_id', user_id)\
+            .execute()
+        return result.data
+    except Exception as e:
+        print(f"Error fetching user simulations: {e}")
+        return []
+    
 
 # Initialize Supabase manager
 supabase_manager = SupabaseManager()
+
+def display_stored_data():
+    if st.session_state.get('parent_name'):
+        st.markdown("### Stored Simulation Data")
+        simulations = supabase_manager.view_user_simulations(st.session_state['parent_name'])
+        if simulations:
+            for sim in simulations:
+                with st.expander(f"Simulation {sim['id']}"):
+                    st.json(sim)
+        else:
+            st.info("No simulations found")
 
 def setup_environment():
     """Initialize environment variables and connections"""
@@ -1107,6 +1140,34 @@ def show_tutorial():
             st.session_state.show_tutorial = False
             st.rerun()
 
+def handle_reflection_submission(current_reflection, strategies_used, prolific_id):
+    print("Current reflection:", current_reflection)
+    print("Strategies used:", strategies_used)
+    print("Prolific ID:", prolific_id)
+    reflection_data = {
+        "user_id": prolific_id,
+        "type": "end_simulation",
+        "content": {
+            "reflection_content": current_reflection,
+            "strategies_used": list(strategies_used),
+            "conversation_summary": {
+                "length": st.session_state['turn_count']
+            }
+        }
+    }
+    
+    if supabase_manager.save_reflection(prolific_id, "end_simulation", reflection_data):
+        st.success("Reflection saved successfully!")
+    else:
+        st.error("Failed to save reflection")
+
+def reset_simulation():
+    st.session_state['conversation_history'] = []
+    st.session_state['turn_count'] = 0
+    st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
+    st.session_state['simulation_id'] = str(uuid4())
+
+
 def main():
     """Main application entry point"""
     check_environment()
@@ -1170,6 +1231,7 @@ def main():
             elif selected == "View Reflections":
                 track_feature_visit("reflections")
                 display_saved_reflections(st.session_state['parent_name'])
+                display_stored_data()  # Add this line
 
             display_progress_sidebar(feature_order)
     
