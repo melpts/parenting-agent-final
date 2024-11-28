@@ -416,6 +416,9 @@ def check_environment():
     
     missing = []
     if hasattr(st, 'secrets'):
+        # Debug: Print available secrets (keys only, not values)
+        st.write("Available secrets:", list(st.secrets.keys()))
+        
         for secret in required_secrets:
             if not st.secrets.get(secret):
                 missing.append(secret)
