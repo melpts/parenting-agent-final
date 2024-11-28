@@ -9,3 +9,4 @@ langchain_community
 langchain-openai
 python-dotenv
 SQLAlchemy
+supabase
