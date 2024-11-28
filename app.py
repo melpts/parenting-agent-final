@@ -924,33 +924,33 @@ def handle_conversation_input(send_button: bool, end_button: bool, user_input: s
 
 def handle_user_input(child_age: str, situation: str):
     """Handle user input during conversation"""
-    with st.form(key=f'parent_input_form_{st.session_state["simulation_id"]}_{st.session_state["turn_count"]}'):
-        user_input = st.text_area(
-            label="Your response",
-            placeholder="How would you respond to your child? Type here...",
-            key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
-            height=100
-        )
+    # Move form creation to this level
+    user_input = st.text_area(
+        label="Your response",
+        placeholder="How would you respond to your child? Type here...",
+        key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
+        height=100
+    )
+    
+    submit_cols = st.columns(2)
+    with submit_cols[0]:
+        send_button = st.button("Send Response", key="send_response", use_container_width=True)
+    with submit_cols[1]:
+        end_button = st.button("End Conversation", key="end_conversation", use_container_width=True, type="secondary")
+    
+    if st.session_state.get('paused'):
+        st.info("""
+            Take a moment to reflect:
+            - What emotions are you noticing in yourself?
+            - What might your child be feeling?
+            - What's your goal in this interaction?
+        """)
+        return
         
-        submit_cols = st.columns(2)
-        with submit_cols[0]:
-            send_button = st.form_submit_button("Send Response", use_container_width=True)
-        with submit_cols[1]:
-            end_button = st.form_submit_button("End Conversation", use_container_width=True, type="secondary")
-        
-        if st.session_state.get('paused'):
-            st.info("""
-                Take a moment to reflect:
-                - What emotions are you noticing in yourself?
-                - What might your child be feeling?
-                - What's your goal in this interaction?
-            """)
-            return
-            
-        if st.session_state.get('show_hints'):
-            st.info("\n".join(STRATEGY_HINTS[st.session_state['strategy']]))
-        
-        handle_conversation_input(send_button, end_button, user_input, child_age, situation)
+    if st.session_state.get('show_hints'):
+        st.info("\n".join(STRATEGY_HINTS[st.session_state['strategy']]))
+    
+    handle_conversation_input(send_button, end_button, user_input, child_age, situation)
 
 def display_conversation_playback(conversation_history):
     """Display the conversation history with feedback"""
