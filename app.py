@@ -766,6 +766,7 @@ def display_saved_reflections(prolific_id: str):
             except Exception as e:
                 print(f"Error displaying reflection: {e}")
                 st.error("Error displaying reflection content.")
+
 def handle_conversation_input(send_button: bool, end_button: bool, user_input: str, child_age: str, situation: str):
     """Handle user input during conversation"""
     if send_button and user_input:
@@ -1043,9 +1044,26 @@ def main():
             )
 
             st.info(feature_order[selected])
-            handle_feature_selection(selected)
-            display_progress_sidebar(feature_order)
 
+            # Track and display selected feature
+            if selected == "Advice":
+                track_feature_visit("advice")
+                display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+            elif selected == "Conversation Starters":
+                track_feature_visit("conversation_starters")
+                display_conversation_starters(st.session_state['situation'])
+            elif selected == "Communication Techniques":
+                track_feature_visit("communication_techniques")
+                display_communication_techniques(st.session_state['situation'])
+            elif selected == "Role-Play Simulation":
+                track_feature_visit("role_play")
+                simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+            elif selected == "View Reflections":
+                track_feature_visit("reflections")
+                display_saved_reflections(st.session_state['parent_name'])
+
+            display_progress_sidebar(feature_order)
+    
 if __name__ == "__main__":
     try:
         init_session_state()
