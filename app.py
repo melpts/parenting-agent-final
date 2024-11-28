@@ -331,7 +331,6 @@ class SupabaseManager:
         self.supabase: Optional[Client] = None
         
     def initialize(self):
-        """Initialize Supabase client"""
         try:
             self.supabase = create_client(self.supabase_url, self.supabase_key)
             return True
@@ -340,24 +339,23 @@ class SupabaseManager:
             return False
     
     def save_reflection(self, user_id: str, reflection_type: str, content: Dict[str, Any]) -> bool:
-       try:
-          data = {
-            "user_id": user_id,
-            "type": reflection_type, 
-            "content": content,
-            "created_at": datetime.utcnow().isoformat(),
-            "langsmith_run_id": st.session_state.get('run_id')
-        }
-          print("Attempting to save reflection:", data)
-          result = self.supabase.table('reflections').insert(data).execute()
-          print("Save result:", result)
-          return True if result.data else False
-       except Exception as e:
-        print(f"Error saving reflection: {e}")
-        return False
-       
+        try:
+            data = {
+                "user_id": user_id,
+                "type": reflection_type, 
+                "content": content,
+                "created_at": datetime.utcnow().isoformat(),
+                "langsmith_run_id": st.session_state.get('run_id')
+            }
+            print("Attempting to save reflection:", data)
+            result = self.supabase.table('reflections').insert(data).execute()
+            print("Save result:", result)
+            return True if result.data else False
+        except Exception as e:
+            print(f"Error saving reflection: {e}")
+            return False
+    
     def get_reflections(self, user_id: str) -> list:
-        """Retrieve reflections for a user"""
         try:
             result = self.supabase.table('reflections')\
                 .select("*")\
@@ -370,34 +368,39 @@ class SupabaseManager:
             return []
     
     def save_simulation_data(self, simulation_data: Dict[str, Any]) -> bool:
-        """Save simulation data to Supabase"""
         try:
-            print("Saving simulation data:", simulation_data)  # Add this debug line
+            print("Saving simulation data:", simulation_data)
             result = self.supabase.table('simulations').insert(simulation_data).execute()
-            print("Save result:", result)  # Add this debug line
+            print("Save result:", result)
             return True if result.data else False
         except Exception as e:
             print(f"Error saving simulation data: {e}")
             return False
-def view_all_simulations(self):
-    """Fetch all simulation records"""
-    try:
-        result = self.supabase.table('simulations').select("*").execute()
-        return result.data
-    except Exception as e:
-        print(f"Error fetching simulations: {e}")
-        return []
-def view_user_simulations(self, user_id: str):
+
+    def view_all_simulations(self):
         try:
-            result = self.supabase.table('simulations')\
-                .select("*")\
-                .eq('user_id', user_id)\
-                .execute()
+            result = self.supabase.table('simulations').select("*").execute()
             return result.data
         except Exception as e:
-            print(f"Error fetching user simulations: {e}")
+            print(f"Error fetching simulations: {e}")
             return []
-    
+
+    def view_user_simulations(self, user_id: str):
+        try:
+            result = self.supabase.table('simulations').select("*").eq('user_id', user_id).execute()
+            print("Query result:", result)
+            return result.data
+        except Exception as e:
+            print(f"Error fetching simulations: {e}")
+            return []
+
+    def save_simulation(self, simulation_data: Dict[str, Any]) -> bool:
+        try:
+            result = self.supabase.table('simulations').insert(simulation_data).execute()
+            return True if result.data else False
+        except Exception as e:
+            print(f"Error saving simulation: {e}")
+            return False
 
 # Initialize Supabase manager
 supabase_manager = SupabaseManager()
