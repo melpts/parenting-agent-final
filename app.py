@@ -388,16 +388,15 @@ def view_all_simulations(self):
         print(f"Error fetching simulations: {e}")
         return []
 def view_user_simulations(self, user_id: str):
-    """Fetch simulations for specific user"""
-    try:
-        result = self.supabase.table('simulations')\
-            .select("*")\
-            .eq('user_id', user_id)\
-            .execute()
-        return result.data
-    except Exception as e:
-        print(f"Error fetching user simulations: {e}")
-        return []
+        try:
+            result = self.supabase.table('simulations')\
+                .select("*")\
+                .eq('user_id', user_id)\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error fetching user simulations: {e}")
+            return []
     
 
 # Initialize Supabase manager
