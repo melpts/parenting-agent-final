@@ -45,6 +45,7 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_community.callbacks.manager import get_openai_callback
 
+
 # Additional third-party imports
 from streamlit_feedback import streamlit_feedback
 from langsmith import Client
@@ -436,8 +437,7 @@ def setup_memory():
     memory = ConversationBufferMemory(
         chat_memory=msgs,
         return_messages=True,
-        memory_key="chat_history",  # Updated from "history"
-        output_key="output"  # Add this line
+        memory_key="chat_history"
     )
     return memory
 
