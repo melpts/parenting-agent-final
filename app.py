@@ -633,6 +633,7 @@ def generate_conversation_starters(situation: str) -> str:
         print(f"Error generating conversation starters: {e}")
         return "Unable to generate conversation starters at this time."
 @traceable(name="display_advice")
+
 def display_advice(parent_name: str, child_age: str, situation: str):
     """Display parenting advice based on the situation"""
     st.markdown("<h2 class='section-header'>Parenting Advice</h2>", unsafe_allow_html=True)
@@ -664,6 +665,97 @@ def display_advice(parent_name: str, child_age: str, situation: str):
             st.error(f"An error occurred: {str(e)}")
     else:
         st.warning("Please describe the situation in the sidebar to get advice.")
+
+def display_progress_sidebar(feature_order):
+    """Display progress of features visited in sidebar"""
+    if 'visited_features' in st.session_state:
+        st.sidebar.markdown("### Your Progress")
+        for feature in feature_order.keys():
+            feature_key = feature.lower().replace(" ", "_")
+            if feature_key in st.session_state.visited_features or feature in st.session_state.visited_features:
+                st.sidebar.markdown(f"✅ {feature}")
+            else:
+                st.sidebar.markdown(f"◽ {feature}")
+
+def display_conversation_starters(situation):
+    """Display conversation starter suggestions"""
+    st.markdown("<h2 class='section-header'>Conversation Starters</h2>", unsafe_allow_html=True)
+    if not situation:
+        st.warning("Please describe the situation to get conversation starters.")
+        return
+
+    try:
+        with st.spinner('Generating conversation starters...'):
+            run_id = create_langsmith_run(
+                name="conversation_starters",
+                inputs={"situation": situation}
+            )
+            
+            messages = [
+                {"role": "system", "content": f"""
+                    Use these academic citations for guidance:
+                    {CONVERSATION_STARTER_CITATIONS}
+                    
+                    And these website resources:
+                    {WEBSITE_CITATIONS}
+                    
+                    Provide practical conversation starters for this situation.
+                """},
+                {"role": "user", "content": f"Situation: {situation}"}
+            ]
+            
+            completion = openai.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                temperature=0.7
+            )
+            
+            starters = completion.choices[0].message.content
+            update_langsmith_run(run_id, {"starters": starters})
+            st.markdown(starters)
+            
+    except Exception as e:
+        print(f"Error generating conversation starters: {e}")
+        st.error("Unable to generate conversation starters at this time.")
+
+def display_communication_techniques(situation):
+    """Display communication technique suggestions"""
+    st.markdown("<h2 class='section-header'>Communication Techniques</h2>", unsafe_allow_html=True)
+    if not situation:
+        st.warning("Please describe the situation to get communication techniques.")
+        return
+
+    try:
+        with st.spinner('Generating communication techniques...'):
+            run_id = create_langsmith_run(
+                name="communication_techniques",
+                inputs={"situation": situation}
+            )
+            
+            messages = [
+                {"role": "system", "content": f"""
+                    Use these communication strategy citations:
+                    {COMMUNICATION_STRATEGIES_CITATIONS}
+                    
+                    Provide specific, actionable communication techniques for this parenting situation.
+                    Include examples and practical applications.
+                """},
+                {"role": "user", "content": f"Situation: {situation}"}
+            ]
+            
+            completion = openai.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                temperature=0.7
+            )
+            
+            techniques = completion.choices[0].message.content
+            update_langsmith_run(run_id, {"techniques": techniques})
+            st.markdown(techniques)
+            
+    except Exception as e:
+        print(f"Error generating communication techniques: {e}")
+        st.error("Unable to generate communication techniques at this time.")
 
 @traceable(name="simulate_conversation_streamlit")
 def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
