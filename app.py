@@ -952,6 +952,22 @@ def handle_user_input(child_age: str, situation: str):
         
         handle_conversation_input(send_button, end_button, user_input, child_age, situation)
 
+def display_conversation_playback(conversation_history):
+    """Display the conversation history with feedback"""
+    st.markdown("<h2 class='section-header'>Conversation Playback</h2>", unsafe_allow_html=True)
+    
+    if not conversation_history:
+        st.info("No conversation history to display.")
+        return
+        
+    for msg in conversation_history:
+        with st.expander(f"{msg['role'].title()}'s message"):
+            st.write(msg['content'])
+            if msg.get('feedback'):
+                st.info(f"💡 Feedback: {msg['feedback']}")
+            if msg.get('strategy_used'):
+                st.info(f"Strategy used: {msg['strategy_used']}")
+
 def end_simulation(conversation_history: list, child_age: str, strategy: str):
     """Handle end of simulation and gather reflections"""
     st.session_state['simulation_ended'] = True
@@ -1005,6 +1021,7 @@ def gather_end_simulation_reflections(strategies_used: set, prolific_id: str):
         
         if submit_button:
             handle_reflection_submission(current_reflection, strategies_used, prolific_id)
+
 def display_reflection_content(content: dict):
     """Display reflection content in a structured format"""
     if 'strategies_used' in content:
