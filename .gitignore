@@ -1,30 +1,73 @@
-# Ignore all secrets files
-secrets*
+# Secrets and environment files
+.env
+.streamlit/secrets.toml
 
-# Ignore virtual environment directories
+# Allow template
+!.streamlit/secrets_template.toml
+
+# Virtual Environment
 .venv/
 venv/
 ENV/
 
-# ignore testing code
+# Testing
 testing/
 
-# Ignore Python cache files
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Ignore Jupyter Notebook checkpoints
+# Jupyter Notebook
 .ipynb_checkpoints/
 
-# Ignore all log files
+# Logs and databases
 *.log
+*.db
+*.sqlite3
+database_errors.log
+parenting_app.db
+user_queries.db
 
-# Ignore OS-specific files
+# Data files
+reflections.pkl
+conversations.json
+
+# OS specific
 .DS_Store
 Thumbs.db
 
-# Ignore any environment configuration files
-.env
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-## ignore any tracing files! 
+# LangSmith tracing
 ls_*
+
+# Local development
+local_development.db
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+
