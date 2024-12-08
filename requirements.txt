@@ -3,10 +3,15 @@ openai
 langchain
 langsmith
 langchain_core
-langsmith
 streamlit_feedback
 langchain_community
 langchain-openai
 python-dotenv
 SQLAlchemy
 supabase
+psycopg2-binary 
+
+urllib3
+pandas
+python-dateutil
+
