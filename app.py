@@ -425,7 +425,7 @@ def setup_memory():
 memory = setup_memory()
 
 def init_session_state():
-    session_vars = {
+    default_vars = {
         'run_id': str(uuid4()),
         'agentState': "start",
         'consent': False,
@@ -440,7 +440,10 @@ def init_session_state():
         'strategy': "Active Listening",
         'simulation_id': str(uuid4()),
         'visited_features': set(),
-        'situation': "",  # Add this default value
+        'parent_name': None,  # Will be populated from URL
+        'child_name': None,   # Will be populated from URL
+        'child_age': None,    # Will be populated from URL
+        'situation': None,    # Will be populated from URL
         'feature_outputs': {
             'advice': {},
             'conversation_starters': {},
@@ -449,9 +452,9 @@ def init_session_state():
         }
     }
     
-    for var, default in session_vars.items():
-        if var not in st.session_state:
-            st.session_state[var] = default
+    for key, value in default_vars.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 @st.cache_data(ttl=3600)
 def cached_openai_call(messages, model="gpt-4", temperature=0.7, max_tokens=150):
@@ -1535,25 +1538,35 @@ def main():
 
     inject_qualtrics_messenger()
 
+    # Get URL parameters before anything else
     params = st.experimental_get_query_params()
     
-    if 'prolific_id' in params:
-        st.session_state['parent_name'] = params['prolific_id'][0]
-    if 'child_name' in params:
-        st.session_state['child_name'] = params['child_name'][0]
-    if 'child_age' in params:
-        st.session_state['child_age'] = params['child_age'][0]
-    if 'feature' in params:
-        selected_feature = params['feature'][0]
-    if 'situation' in params:
-        st.session_state['situation'] = params['situation'][0]
+    # Debug information
+    st.write("Debug Info:")
+    st.write("URL Parameters:", params)
+    st.write("Current Session State:", {k: v for k, v in st.session_state.items() if k in ['parent_name', 'child_name', 'child_age', 'situation']})
+    
+    # Initialize session state if not already done
+    if 'initialized' not in st.session_state:
+        st.session_state['initialized'] = True
+        if 'prolific_id' in params:
+            st.session_state['parent_name'] = params['prolific_id'][0]
+        if 'child_name' in params:
+            st.session_state['child_name'] = params['child_name'][0]
+        if 'child_age' in params:
+            st.session_state['child_age'] = params['child_age'][0]
+        if 'situation' in params:
+            st.session_state['situation'] = params['situation'][0]
+            
+    # If feature parameter is present, use it
     if 'feature' in params:
         selected_feature = params['feature'][0]
     else:
         selected_feature = "Advice"
         
-    # If we have all required parameters, mark as submitted
-    if all(key in st.session_state for key in ['parent_name', 'child_name', 'child_age', 'situation']):
+    # Mark as submitted if all required parameters are present
+    if all(key in st.session_state and st.session_state[key] is not None 
+           for key in ['parent_name', 'child_name', 'child_age', 'situation']):
         st.session_state['info_submitted'] = True
 
     # Initialize feature order and descriptions
@@ -1572,15 +1585,16 @@ def main():
         st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
         st.markdown(f"""
             <div class='info-section'>
-                <strong>Parent:</strong> {st.session_state['parent_name']}<br>
-                <strong>Child:</strong> {st.session_state['child_name']}<br>
-                <strong>Age:</strong> {st.session_state['child_age']}<br>
-                <strong>Situation:</strong> {st.session_state['situation']}
+                <strong>Parent:</strong> {st.session_state.get('parent_name', '')}<br>
+                <strong>Child:</strong> {st.session_state.get('child_name', '')}<br>
+                <strong>Age:</strong> {st.session_state.get('child_age', '')}<br>
+                <strong>Situation:</strong> {st.session_state.get('situation', '')}
             </div>
         """, unsafe_allow_html=True)
         
         if st.button("Edit Information", use_container_width=True):
             st.session_state['info_submitted'] = False
+            st.session_state['initialized'] = False
             st.session_state.pop('conversation_history', None)
             st.session_state.pop('run_id', None)
             st.rerun()
@@ -1590,16 +1604,20 @@ def main():
     else:
         st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
 
-        selected = st.radio(
-            "Choose an option:",
-            list(feature_order.keys()),
-            horizontal=True,
-            help="Select a tool that best matches your current needs"
-        )
+        # If feature was passed in URL, use that, otherwise show radio buttons
+        if 'feature' in params:
+            selected = params['feature'][0]
+        else:
+            selected = st.radio(
+                "Choose an option:",
+                list(feature_order.keys()),
+                horizontal=True,
+                help="Select a tool that best matches your current needs"
+            )
 
         st.info(feature_order[selected])
 
-     # Track and display selected feature
+        # Track and display selected feature
         if selected == "Advice":
             track_feature_visit("advice")
             display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
@@ -1614,18 +1632,3 @@ def main():
             simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
 
         display_progress_sidebar(feature_order)
-    
-if __name__ == "__main__":
-    try:
-        init_session_state()
-        check_environment()
-        
-        if not supabase_manager.initialize():
-            st.error("Failed to initialize Supabase connection!")
-            st.stop()
-        
-        main()
-        
-    except Exception as e:
-        st.error(f"Application error: {str(e)}")
-        print(f"Detailed error: {str(e)}")
