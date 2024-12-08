@@ -440,6 +440,7 @@ def init_session_state():
         'strategy': "Active Listening",
         'simulation_id': str(uuid4()),
         'visited_features': set(),
+        'situation': "",  # Add this default value
         'feature_outputs': {
             'advice': {},
             'conversation_starters': {},
@@ -1544,11 +1545,15 @@ def main():
         st.session_state['child_age'] = params['child_age'][0]
     if 'feature' in params:
         selected_feature = params['feature'][0]
+    if 'situation' in params:
+        st.session_state['situation'] = params['situation'][0]
+    if 'feature' in params:
+        selected_feature = params['feature'][0]
     else:
-        selected_feature = "Advice"  # or whatever default you want
+        selected_feature = "Advice"
         
     # If we have all required parameters, mark as submitted
-    if all(key in st.session_state for key in ['parent_name', 'child_name', 'child_age']):
+    if all(key in st.session_state for key in ['parent_name', 'child_name', 'child_age', 'situation']):
         st.session_state['info_submitted'] = True
 
     # Initialize feature order and descriptions
