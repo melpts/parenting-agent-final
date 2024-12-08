@@ -92,6 +92,25 @@ def setup_memory():
 # Initialize Memory
 memory = setup_memory()
 
+def inject_qualtrics_messenger():
+    """Inject JavaScript code for Qualtrics communication"""
+    return html("""
+        <script>
+        // Function to send messages to Qualtrics
+        function notifyQualtrics(feature) {
+            window.parent.postMessage({
+                'feature': feature,
+                'complete': true
+            }, '*');
+        }
+
+        // Listen for feature changes
+        window.addEventListener('featureChange', function(e) {
+            notifyQualtrics(e.detail.feature);
+        });
+        </script>
+    """)
+
 CUSTOM_CSS = """
     <style>
     /* General Typography */
@@ -221,30 +240,6 @@ CUSTOM_CSS = """
         border: 1px solid #e2e8f0;
     }
     </style>
-"""
-
-COMMUNICATION_JS = """
-<script>
-window.addEventListener('message', function(event) {
-    // Handle messages from Qualtrics
-    if (event.data.type === 'qualtricsMessage') {
-        // Forward message to Streamlit
-        window.parent.postMessage({
-            type: 'streamlitMessage',
-            content: event.data
-        }, '*');
-    }
-});
-
-function notifyQualtrics(featureData) {
-    // Send message to parent (Qualtrics) window
-    window.parent.postMessage({
-        type: 'featureCompleted',
-        feature: featureData.feature,
-        completionData: featureData.data
-    }, '*');
-}
-</script>
 """
 
 # Strategy Explanations
@@ -471,34 +466,30 @@ def cached_openai_call(messages, model="gpt-4", temperature=0.7, max_tokens=150)
         print(f"OpenAI API error: {e}")
         return None
             
-def track_feature_visit(feature_name: str, completion_data: Dict[str, Any] = None):
-    """Track feature completion and notify Qualtrics"""
+def track_feature_visit(feature_name: str):
+    """Track which features the user has visited"""
     if 'visited_features' not in st.session_state:
         st.session_state.visited_features = set()
     
     feature_display_map = {
         "advice": "Advice",
-        "communication_techniques": "Communication Techniques",
         "conversation_starters": "Conversation Starters",
-        "role_play": "Role-Play Simulation"
+        "communication_techniques": "Communication Techniques",
+        "role_play": "Role-Play Simulation",
+        "Role-Play Simulation": "Role-Play Simulation"
     }
     
     normalized_name = feature_display_map.get(feature_name, feature_name)
     st.session_state.visited_features.add(normalized_name)
+    st.session_state.visited_features.add(normalized_name.lower().replace(" ", "_"))
     
-    # Prepare completion data
-    feature_data = {
-        "feature": normalized_name,
-        "data": completion_data or {}
-    }
-    
-    # Inject JavaScript to notify Qualtrics
-    js_code = f"""
-    <script>
-    notifyQualtrics({json.dumps(feature_data)});
-    </script>
-    """
-    html(js_code)
+    st.components.v1.html(f"""
+        <script>
+        window.dispatchEvent(new CustomEvent('featureChange', {{
+            detail: {{ feature: '{normalized_name.lower().replace(" ", "_")}' }}
+        }}));
+        </script>
+    """)
 
 def generate_child_response(conversation_history, child_age, situation, mood, strategy, parent_response):
     """Generate a child's response based on the current context with improved personalization"""
@@ -756,14 +747,6 @@ def display_advice(parent_name: str, child_age: str, situation: str):
                                     </div>
                                 </div>
                             """, unsafe_allow_html=True)
-            
-            # Track feature completion 
-            track_feature_visit("advice", {
-                "situation": situation,
-                "child_age": child_age,
-                "advice_count": len(advice_list),
-                "timestamp": datetime.now().isoformat()
-            })
 
     except Exception as e:
         print(f"Error: {e}")
@@ -878,6 +861,32 @@ def display_conversation_starters(situation):
                         line-height: 1.6;
                         color: #2d3748;
                     }
+                    
+                    .tips-section {
+                        background-color: #f7fafc;
+                        border-radius: 12px;
+                        padding: 24px;
+                        margin-top: 40px;
+                        border: 1px solid #e2e8f0;
+                    }
+                    
+                    .tips-header {
+                        display: flex;
+                        align-items: center;
+                        margin-bottom: 16px;
+                    }
+                    
+                    .tips-icon {
+                        width: 32px;
+                        height: 32px;
+                        margin-right: 12px;
+                        background-color: #4F46E5;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                    }
                 </style>
             """, unsafe_allow_html=True)
             
@@ -890,7 +899,17 @@ def display_conversation_starters(situation):
                 "Ideas": "#FDF6B2:#D97706"          # Yellow
             }
             
-            # Display starters in cards
+            # Display introduction
+            st.markdown("""
+                <div style="margin-bottom: 24px;">
+                    <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+                        Use these thoughtfully crafted conversation starters to open up meaningful dialogue with your child. 
+                        Each starter is designed to encourage open communication and understanding.
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Display starters in a single column for better readability
             for starter in starters:
                 bg_color, text_color = color_map.get(starter['category'], "#F9FAFB:#4A5568").split(":")
                 
@@ -909,15 +928,6 @@ def display_conversation_starters(situation):
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
-            
-            # Track feature completion
-            track_feature_visit("conversation_starters", {
-                "situation": situation,
-                "starters_count": len(starters),
-                "child_age": st.session_state.get('child_age'),
-                "categories": list(set(s['category'] for s in starters)),
-                "timestamp": datetime.now().isoformat()
-            })
             
             # Display tips section
             st.markdown("""
@@ -1083,13 +1093,6 @@ def display_communication_techniques(situation):
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
-    
-            track_feature_visit("communication_techniques", {
-                "situation": situation,
-                "strategies_count": len(strategies),
-                "child_age": st.session_state.get('child_age'),
-                "timestamp": datetime.now().isoformat()
-            })
     
     except Exception as e:
         print(f"Detailed error: {str(e)}")
@@ -1378,7 +1381,6 @@ def display_conversation_playback(conversation_history):
         """, unsafe_allow_html=True)
 
 def end_simulation(conversation_history: list, child_age: str, strategy: str):
-    """End the simulation and track completion"""
     st.session_state['simulation_ended'] = True
     
     if not st.session_state.get('parent_name'):
@@ -1394,16 +1396,9 @@ def end_simulation(conversation_history: list, child_age: str, strategy: str):
         if not success:
             st.error(f"Failed to complete simulation: {message}")
     
-    # Track simulation completion
-    track_feature_visit("role_play", {
-        "conversation_length": len(conversation_history),
-        "strategy_used": strategy,
-        "child_age": child_age,
-        "total_turns": st.session_state['turn_count'],
-        "timestamp": datetime.now().isoformat()
-    })
+    track_feature_visit("Role-Play Simulation")
+    st.write("The simulation has ended.")
     
-    # Display conversation playback
     display_conversation_playback(conversation_history)
     
     # Check visited features and display completion message
@@ -1537,7 +1532,24 @@ def main():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
-    html(COMMUNICATION_JS)
+    inject_qualtrics_messenger()
+
+    params = st.experimental_get_query_params()
+    
+    if 'prolific_id' in params:
+        st.session_state['parent_name'] = params['prolific_id'][0]
+    if 'child_name' in params:
+        st.session_state['child_name'] = params['child_name'][0]
+    if 'child_age' in params:
+        st.session_state['child_age'] = params['child_age'][0]
+    if 'feature' in params:
+        selected_feature = params['feature'][0]
+    else:
+        selected_feature = "Advice"  # or whatever default you want
+        
+    # If we have all required parameters, mark as submitted
+    if all(key in st.session_state for key in ['parent_name', 'child_name', 'child_age']):
+        st.session_state['info_submitted'] = True
 
     # Initialize feature order and descriptions
     feature_order = {
