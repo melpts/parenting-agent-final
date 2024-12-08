@@ -19,14 +19,6 @@ from supabase import create_client, Client
 from streamlit_feedback import streamlit_feedback
 
 # LangChain imports
-from langchain.callbacks.base import BaseCallbackHandler
-from langchain.schema import (
-    HumanMessage, 
-    AIMessage, 
-    AgentAction, 
-    AgentFinish,
-    LLMResult
-)
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_openai import OpenAI
@@ -34,9 +26,11 @@ from langchain_community.chat_models import ChatOpenAI
 from langchain.prompts import StringPromptTemplate
 from langchain.chains import ConversationChain, LLMChain
 from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent, AgentOutputParser
+from langchain.schema import HumanMessage, AIMessage, AgentAction, AgentFinish
 from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_community.callbacks.manager import get_openai_callback
+
 
 # citation imports
 from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
@@ -66,56 +60,21 @@ def check_environment():
         'OPENAI_API_KEY',
         'SUPABASE_URL',
         'SUPABASE_KEY',
-        'LANGCHAIN_API_KEY',
-        'LANGCHAIN_TRACING_V2',
-        'LANGCHAIN_ENDPOINT'
+        'LANGCHAIN_API_KEY'
     ]
     
-    missing_vars = []
-    for var in required_vars:
-        value = os.getenv(var) or st.secrets.get(var)
-        if not value:
-            missing_vars.append(var)
-        else:
-            print(f"Found {var}: {value[:4]}...")  # Print first 4 chars for verification
+    missing_vars = [var for var in required_vars if not (os.getenv(var) or hasattr(st.secrets, var))]
     
     if missing_vars:
         error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
         st.error(error_msg)
         raise EnvironmentError(error_msg)
     
-    # Set OpenAI API key
-    openai_key = os.getenv('OPENAI_API_KEY') or st.secrets.get('OPENAI_API_KEY')
-    os.environ['OPENAI_API_KEY'] = openai_key
-    openai.api_key = openai_key
-    
-    # Set LangChain API key and tracing
-    langchain_key = os.getenv('LANGCHAIN_API_KEY') or st.secrets.get('LANGCHAIN_API_KEY')
-    os.environ['LANGCHAIN_API_KEY'] = langchain_key
-    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-    os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+    openai.api_key = os.getenv('OPENAI_API_KEY') or st.secrets.get('OPENAI_API_KEY')
+    os.environ['LANGCHAIN_API_KEY'] = os.getenv('LANGCHAIN_API_KEY') or st.secrets.get('LANGCHAIN_API_KEY')
 
 # Initialize LangSmith Client
 # smith_client = Client()
-
-class StreamlitCallbackHandler(BaseCallbackHandler):
-    """Custom callback handler for Streamlit integration"""
-    def __init__(self):
-        self.tokens = []
-        
-    def on_llm_start(self, serialized: Dict[str, Any], prompts: List[str], **kwargs) -> None:
-        """Run when LLM starts running."""
-        st.session_state['current_response'] = ''
-        
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
-        """Run on new LLM token."""
-        self.tokens.append(token)
-        st.session_state['current_response'] = ''.join(self.tokens)
-        
-    def on_llm_end(self, response: LLMResult, **kwargs) -> None:
-        """Run when LLM ends running."""
-        st.session_state['current_response'] = ''
-        self.tokens = []
 
 def create_langsmith_run(name: str, inputs: Dict[str, Any], fallback_id: Optional[str] = None) -> str:
     """Create a unique identifier for tracking runs"""
@@ -125,56 +84,12 @@ def update_langsmith_run(run_id: str, outputs: Dict[str, Any]):
     """Update run with outputs"""
     pass
 
-def setup_langchain():
-    """Initialize LangChain components"""
-    try:
-        print("Starting LangChain setup...")
-        api_key = os.getenv('OPENAI_API_KEY') or st.secrets.get('OPENAI_API_KEY')
-        print(f"API Key found: {bool(api_key)}")
-        
-        # Enable LangSmith tracing
-        os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-        os.environ["LANGCHAIN_API_KEY"] = os.getenv('LANGCHAIN_API_KEY') or st.secrets.get('LANGCHAIN_API_KEY')
-        
-        # Initialize OpenAI LLM
-        llm = ChatOpenAI(
-            model_name="gpt-4",
-            temperature=0.7,
-            streaming=True,
-            callbacks=[StreamlitCallbackHandler()],
-            openai_api_key=api_key
-        )
-        print("LLM initialized successfully")
-        
-        # Initialize conversation memory
-        memory = ConversationBufferWindowMemory(
-            k=5,
-            memory_key="history",
-            return_messages=True
-        )
-        print("Memory initialized successfully")
-        
-        # Create conversation chain with project name
-        conversation_chain = ConversationChain(
-            llm=llm,
-            memory=memory,
-            verbose=True,
-            tags=["parenting_agent"]  # Add tags for better organization
-        )
-        print("Conversation chain created successfully")
-        
-        return conversation_chain
-    except Exception as e:
-        print(f"Error setting up LangChain: {str(e)}")
-        traceback.print_exc()
-        return None
+def setup_memory():
+    """Sets up memory for the application"""
+    return ConversationBufferWindowMemory(k=3)
 
-# Initialize LangChain
-def initialize_langchain():
-    if 'conversation_chain' not in st.session_state:
-        st.session_state['conversation_chain'] = setup_langchain()
-    return st.session_state.get('conversation_chain')
+# Initialize Memory
+memory = setup_memory()
 
 CUSTOM_CSS = """
     <style>
@@ -479,7 +394,6 @@ class SupabaseManager:
             traceback.print_exc()
             return False, []
         
-
 # Initialize Supabase manager
 supabase_manager = SupabaseManager()
 
@@ -506,14 +420,12 @@ def init_session_state():
         'strategy': "Active Listening",
         'simulation_id': str(uuid4()),
         'visited_features': set(),
-        'parent_name': None,  # Initialize parent_name (Prolific ID)
         'feature_outputs': {
             'advice': {},
             'conversation_starters': {},
             'communication_techniques': {},
             'simulation_history': []
-        },
-        'conversation_chain': None  
+        }
     }
     
     for var, default in session_vars.items():
@@ -625,28 +537,6 @@ def generate_child_response(conversation_history, child_age, situation, mood, st
         print(f"Error generating child response: {e}")
         return "I don't know what to say..."
 
-def handle_langchain_conversation(conversation_chain, user_input: str, context: dict) -> str:
-    """Handle conversation using LangChain"""
-    try:
-        # Prepare the prompt with context
-        prompt = f"""
-        Context:
-        - Child's Age: {context['child_age']}
-        - Situation: {context['situation']}
-        - Strategy: {context['strategy']}
-        - Current Mood: {context['child_mood']}
-        
-        User Input: {user_input}
-        """
-        
-        # Get response from LangChain
-        response = conversation_chain.predict(input=prompt)
-        return response
-        
-    except Exception as e:
-        print(f"Error in LangChain conversation: {e}")
-        return "I apologize, but I'm having trouble processing your request."
-    
 def provide_realtime_feedback(parent_response: str, strategy: str, situation: str, child_age: str, conversation_history: list) -> dict:
     """
     Provides two types of feedback:
@@ -1365,51 +1255,25 @@ def handle_user_input(child_age: str, situation: str):
 
 def handle_conversation_input(send_button: bool, end_button: bool, user_input: str, child_age: str, situation: str):
     if send_button and user_input:
-        # Initialize LangChain if not already done
-        if not st.session_state.get('conversation_chain'):
-            st.session_state['conversation_chain'] = setup_langchain()
-            
-        if st.session_state['conversation_chain'] is None:
-            st.error("Failed to initialize LangChain components. Please check your API keys and try again.")
-            return
-            
-        context = {
-            'child_age': child_age,
-            'situation': situation,
-            'strategy': st.session_state['strategy'],
-            'child_mood': st.session_state['child_mood']
-        }
-        
-        # Get LangChain response
-        langchain_response = handle_langchain_conversation(
-            st.session_state['conversation_chain'],
-            user_input,
-            context
-        )
-
         feedback = provide_realtime_feedback(
             user_input, 
             st.session_state['strategy'],
-            situation,
+            st.session_state['situation'],
             child_age,
             st.session_state['conversation_history']
         )
         
         simulation_data = {
-    "user_id": st.session_state['parent_name'],  # Prolific ID
-    "simulation_data": {
-        "prolific_id": st.session_state['parent_name'],  
-        "parent_message": user_input,
-        "langchain_response": langchain_response,
-        "strategy": st.session_state['strategy'],
-        "child_age": child_age,
-        "situation": situation,
-        "turn_count": st.session_state['turn_count'],
-        "child_name": st.session_state['child_name'],
-        "timestamp": datetime.utcnow().isoformat()
-    },
-    "created_at": datetime.utcnow().isoformat()
-  }
+            "user_id": st.session_state['parent_name'],
+            "simulation_data": {
+                "parent_message": user_input,
+                "strategy": st.session_state['strategy'],
+                "child_age": child_age,
+                "situation": situation,
+                "turn_count": st.session_state['turn_count']
+            },
+            "created_at": datetime.utcnow().isoformat()
+        }
         
         success, result = supabase_manager.save_simulation_data(simulation_data)
         if not success:
@@ -1434,20 +1298,19 @@ def handle_conversation_input(send_button: bool, end_button: bool, user_input: s
                 f"turn_{st.session_state['turn_count']}_parent": {
                     "content": user_input,
                     "strategy": st.session_state['strategy'],
-                    "feedback": feedback,
-                    "langchain_response": langchain_response  # Add LangChain response
+                    "feedback": feedback
                 }
             }
         )
     
-        # Generate child's response using LangChain response as context
+        # Generate child's response
         child_response = generate_child_response(
             st.session_state['conversation_history'],
             child_age,
             situation,
             st.session_state['child_mood'],
             st.session_state['strategy'],
-            langchain_response  # Use LangChain response here
+            user_input
         )
         
         # Add child's response to history
@@ -1641,13 +1504,6 @@ def main():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
-    # Initialize LangChain if not already done
-    if not st.session_state.get('conversation_chain'):
-        st.session_state['conversation_chain'] = setup_langchain()
-        
-    if st.session_state['conversation_chain'] is None:
-        st.error("Failed to initialize LangChain components. Please check your API keys.")
-        st.stop()
 
     # Initialize feature order and descriptions
     feature_order = {
@@ -1676,7 +1532,6 @@ def main():
             st.session_state['info_submitted'] = False
             st.session_state.pop('conversation_history', None)
             st.session_state.pop('run_id', None)
-            st.session_state.pop('conversation_chain', None)  # Add this line to reset LangChain
             st.rerun()
 
     if 'show_tutorial' not in st.session_state:
@@ -1716,14 +1571,6 @@ if __name__ == "__main__":
         
         if not supabase_manager.initialize():
             st.error("Failed to initialize Supabase connection!")
-            st.stop()
-            
-        # Initialize LangChain if not already done
-        if not st.session_state.get('conversation_chain'):
-            st.session_state['conversation_chain'] = setup_langchain()
-            
-        if st.session_state['conversation_chain'] is None:
-            st.error("Failed to initialize LangChain components. Please check your API keys.")
             st.stop()
         
         main()
