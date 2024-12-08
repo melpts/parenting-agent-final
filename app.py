@@ -506,6 +506,7 @@ def init_session_state():
         'strategy': "Active Listening",
         'simulation_id': str(uuid4()),
         'visited_features': set(),
+        'parent_name': None,  # Initialize parent_name (Prolific ID)
         'feature_outputs': {
             'advice': {},
             'conversation_starters': {},
@@ -1395,17 +1396,20 @@ def handle_conversation_input(send_button: bool, end_button: bool, user_input: s
         )
         
         simulation_data = {
-            "user_id": st.session_state['parent_name'],
-            "simulation_data": {
-                "parent_message": user_input,
-                "langchain_response": langchain_response,  # Add LangChain response
-                "strategy": st.session_state['strategy'],
-                "child_age": child_age,
-                "situation": situation,
-                "turn_count": st.session_state['turn_count']
-            },
-            "created_at": datetime.utcnow().isoformat()
-        }
+    "user_id": st.session_state['parent_name'],  # Prolific ID
+    "simulation_data": {
+        "prolific_id": st.session_state['parent_name'],  
+        "parent_message": user_input,
+        "langchain_response": langchain_response,
+        "strategy": st.session_state['strategy'],
+        "child_age": child_age,
+        "situation": situation,
+        "turn_count": st.session_state['turn_count'],
+        "child_name": st.session_state['child_name'],
+        "timestamp": datetime.utcnow().isoformat()
+    },
+    "created_at": datetime.utcnow().isoformat()
+  }
         
         success, result = supabase_manager.save_simulation_data(simulation_data)
         if not success:
