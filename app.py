@@ -92,30 +92,6 @@ def setup_memory():
 # Initialize Memory
 memory = setup_memory()
 
-COMMUNICATION_JS = """
-<script>
-window.addEventListener('message', function(event) {
-    // Handle messages from Qualtrics
-    if (event.data.type === 'qualtricsMessage') {
-        // Forward message to Streamlit
-        window.parent.postMessage({
-            type: 'streamlitMessage',
-            content: event.data
-        }, '*');
-    }
-});
-
-function notifyQualtrics(featureData) {
-    // Send message to parent (Qualtrics) window
-    window.parent.postMessage({
-        type: 'featureCompleted',
-        feature: featureData.feature,
-        completionData: featureData.data
-    }, '*');
-}
-</script>
-"""
-
 CUSTOM_CSS = """
     <style>
     /* General Typography */
@@ -245,6 +221,30 @@ CUSTOM_CSS = """
         border: 1px solid #e2e8f0;
     }
     </style>
+"""
+
+COMMUNICATION_JS = """
+<script>
+window.addEventListener('message', function(event) {
+    // Handle messages from Qualtrics
+    if (event.data.type === 'qualtricsMessage') {
+        // Forward message to Streamlit
+        window.parent.postMessage({
+            type: 'streamlitMessage',
+            content: event.data
+        }, '*');
+    }
+});
+
+function notifyQualtrics(featureData) {
+    // Send message to parent (Qualtrics) window
+    window.parent.postMessage({
+        type: 'featureCompleted',
+        feature: featureData.feature,
+        completionData: featureData.data
+    }, '*');
+}
+</script>
 """
 
 # Strategy Explanations
