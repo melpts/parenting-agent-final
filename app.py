@@ -1548,19 +1548,57 @@ def main():
 
         st.info(feature_order[selected])
 
-     # Track and display selected feature
+
         if selected == "Advice":
-            track_feature_visit("advice")
-            display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+         track_feature_visit("advice")
+         display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+         st.markdown("""
+         <script>
+         window.parent.postMessage({type: 'FEATURE_COMPLETED', feature: 'advice'}, '*');
+         </script>
+         """, unsafe_allow_html=True)
+
         elif selected == "Communication Techniques":
-            track_feature_visit("communication_techniques")
-            display_communication_techniques(st.session_state['situation'])
+         track_feature_visit("communication_techniques")
+         display_communication_techniques(st.session_state['situation'])
+         st.markdown("""
+         <script>
+         window.parent.postMessage({type: 'FEATURE_COMPLETED', feature: 'communication_techniques'}, '*');
+         </script>
+         """, unsafe_allow_html=True)
+
         elif selected == "Conversation Starters":
-            track_feature_visit("conversation_starters")
-            display_conversation_starters(st.session_state['situation'])
+         track_feature_visit("conversation_starters")
+         display_conversation_starters(st.session_state['situation'])
+         st.markdown("""
+         <script>
+         window.parent.postMessage({type: 'FEATURE_COMPLETED', feature: 'conversation_starters'}, '*');
+         </script>
+         """, unsafe_allow_html=True)
+
         elif selected == "Role-Play Simulation":
-            track_feature_visit("role_play")
-            simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+         track_feature_visit("role_play")
+         simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+         st.markdown("""
+         <script>
+         window.parent.postMessage({type: 'FEATURE_COMPLETED', feature: 'role_play'}, '*');
+         </script>
+         """, unsafe_allow_html=True)
+
+
+     # Track and display selected feature
+        # if selected == "Advice":
+              #track_feature_visit("advice")
+             #display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+         #elif selected == "Communication Techniques":
+             #track_feature_visit("communication_techniques")
+             #display_communication_techniques(st.session_state['situation'])
+         #elif selected == "Conversation Starters":
+             #track_feature_visit("conversation_starters")
+             #display_conversation_starters(st.session_state['situation'])
+         #elif selected == "Role-Play Simulation":
+            # track_feature_visit("role_play")
+             #simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
 
         display_progress_sidebar(feature_order)
     
