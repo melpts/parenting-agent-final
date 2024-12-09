@@ -1605,31 +1605,43 @@ def main():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
-    # Get URL parameters
-    query_params = st.experimental_get_query_params()
+# Get URL parameters
+    query_params = st.query_params  # Updated from experimental version
     
     # Check if embedded
-    is_embedded = query_params.get("embed", [False])[0]
+    is_embedded = query_params.get("embed", False)
     
     # Get specific feature to show
-    feature = query_params.get("feature", [None])[0]
+    feature = query_params.get("feature", None)
     
     # Handle all URL parameters
-    if "prolific_id" in query_params:
-        st.session_state["prolific_id"] = query_params["prolific_id"][0]
-        st.session_state["parent_name"] = query_params["prolific_id"][0]
-        
-        # Also check for other parameters
-        if "child_name" in query_params:
-            st.session_state["child_name"] = query_params["child_name"][0]
-        if "child_age" in query_params:
-            st.session_state["child_age"] = query_params["child_age"][0]
-        if "situation" in query_params:
-            st.session_state["situation"] = query_params["situation"][0]
+    try:
+        if "prolific_id" in query_params:
+            prolific_id = query_params["prolific_id"]
+            st.session_state["prolific_id"] = prolific_id
+            st.session_state["parent_name"] = prolific_id
             
-        # Only mark as submitted if we have all required information
-        if all(key in st.session_state for key in ["child_name", "child_age", "situation"]):
-            st.session_state["info_submitted"] = True
+            # Also check for other parameters
+            if "child_name" in query_params:
+                st.session_state["child_name"] = query_params["child_name"]
+            if "child_age" in query_params:
+                st.session_state["child_age"] = query_params["child_age"]
+            if "situation" in query_params:
+                st.session_state["situation"] = query_params["situation"]
+                
+            # Debug printing
+            print("Session state after parameter handling:")
+            print(f"Prolific ID: {st.session_state.get('prolific_id')}")
+            print(f"Child Name: {st.session_state.get('child_name')}")
+            print(f"Child Age: {st.session_state.get('child_age')}")
+            print(f"Situation: {st.session_state.get('situation')}")
+            
+            # Only mark as submitted if we have all required information
+            if all(key in st.session_state for key in ["child_name", "child_age", "situation"]):
+                st.session_state["info_submitted"] = True
+                print("Info submitted set to True")
+    except Exception as e:
+        print(f"Error handling URL parameters: {str(e)}")
 
     # Adjust UI if embedded
     if is_embedded:
