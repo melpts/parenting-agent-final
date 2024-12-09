@@ -1605,6 +1605,49 @@ def main():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
+    # Get URL parameters
+    query_params = st.experimental_get_query_params()
+    
+    # Check if embedded
+    is_embedded = query_params.get("embed", [False])[0]
+    
+    # Get specific feature to show
+    feature = query_params.get("feature", [None])[0]
+    
+    # Handle all URL parameters
+    if "prolific_id" in query_params:
+        st.session_state["prolific_id"] = query_params["prolific_id"][0]
+        st.session_state["parent_name"] = query_params["prolific_id"][0]
+        
+        # Also check for other parameters
+        if "child_name" in query_params:
+            st.session_state["child_name"] = query_params["child_name"][0]
+        if "child_age" in query_params:
+            st.session_state["child_age"] = query_params["child_age"][0]
+        if "situation" in query_params:
+            st.session_state["situation"] = query_params["situation"][0]
+            
+        # Only mark as submitted if we have all required information
+        if all(key in st.session_state for key in ["child_name", "child_age", "situation"]):
+            st.session_state["info_submitted"] = True
+
+    # Adjust UI if embedded
+    if is_embedded:
+        st.markdown("""
+            <style>
+                .block-container {
+                    padding-top: 1rem;
+                    padding-bottom: 1rem;
+                    max-width: 100% !important;
+                }
+                .element-container {
+                    width: 100%;
+                }
+                .stApp {
+                    margin: 0;
+                }
+            </style>
+        """, unsafe_allow_html=True)
 
     # Initialize feature order and descriptions
     feature_order = {
@@ -1613,33 +1656,41 @@ def main():
         "Conversation Starters": "Receive help initiating difficult conversations with suggested opening phrases and questions.",
         "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach."
     }
-         
+
+    
     if not st.session_state.get('info_submitted', False):
         show_info_screen()
         return
 
     with st.sidebar:
-        st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
-        st.markdown(f"""
-            <div class='info-section'>
-                <strong>Parent:</strong> {st.session_state['parent_name']}<br>
-                <strong>Child:</strong> {st.session_state['child_name']}<br>
-                <strong>Age:</strong> {st.session_state['child_age']}<br>
-                <strong>Situation:</strong> {st.session_state['situation']}
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("Edit Information", use_container_width=True):
-            st.session_state['info_submitted'] = False
-            st.session_state.pop('conversation_history', None)
-            st.session_state.pop('run_id', None)
-            st.rerun()
+        if not is_embedded:  # Only show sidebar in non-embedded mode
+            st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class='info-section'>
+                    <strong>Parent:</strong> {st.session_state['parent_name']}<br>
+                    <strong>Child:</strong> {st.session_state['child_name']}<br>
+                    <strong>Age:</strong> {st.session_state['child_age']}<br>
+                    <strong>Situation:</strong> {st.session_state['situation']}
+                </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("Edit Information", use_container_width=True):
+                st.session_state['info_submitted'] = False
+                st.session_state.pop('conversation_history', None)
+                st.session_state.pop('run_id', None)
+                st.rerun()
 
-    if 'show_tutorial' not in st.session_state:
-        show_tutorial()
+    # Handle specific feature from URL parameter
+    if feature and feature in [f.lower().replace(" ", "_") for f in feature_order.keys()]:
+        feature_map = {f.lower().replace(" ", "_"): f for f in feature_order.keys()}
+        selected = feature_map[feature]
     else:
+        if 'show_tutorial' not in st.session_state:
+            show_tutorial()
+            return
+        
         st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
-
+        
         selected = st.radio(
             "Choose an option:",
             list(feature_order.keys()),
@@ -1647,25 +1698,29 @@ def main():
             help="Select a tool that best matches your current needs"
         )
 
+    if not is_embedded:
         st.info(feature_order[selected])
 
-     # Track and display selected feature
-        if selected == "Advice":
-            track_feature_visit("advice")
-            display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
-        elif selected == "Communication Techniques":
-            track_feature_visit("communication_techniques")
-            display_communication_techniques(st.session_state['situation'])
-        elif selected == "Conversation Starters":
-            track_feature_visit("conversation_starters")
-            display_conversation_starters(st.session_state['situation'])
-        elif selected == "Role-Play Simulation":
-            track_feature_visit("role_play")
-            simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+    # Track and display selected feature
+    if selected == "Advice":
+        track_feature_visit("advice")
+        display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+    elif selected == "Communication Techniques":
+        track_feature_visit("communication_techniques")
+        display_communication_techniques(st.session_state['situation'])
+    elif selected == "Conversation Starters":
+        track_feature_visit("conversation_starters")
+        display_conversation_starters(st.session_state['situation'])
+    elif selected == "Role-Play Simulation":
+        track_feature_visit("role_play")
+        simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
 
+    if not is_embedded:  # Only show progress sidebar in non-embedded mode
+       
         display_progress_sidebar(feature_order)
+
     
-if __name__ == "__main__":
+if __name__ == "__main__":  # Align with def main()
     try:
         init_session_state()
         check_environment()
