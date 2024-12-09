@@ -492,7 +492,8 @@ def init_session_state():
             'conversation_starters': {},
             'communication_techniques': {},
             'simulation_history': []
-        }
+        },
+        'show_tutorial': False  
     }
     
     for var, default in session_vars.items():
@@ -1605,12 +1606,20 @@ def main():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
+    # Initialize feature order and descriptions - Define this early as it's used in multiple places
+    feature_order = {
+        "Advice": "Get expert guidance on handling specific parenting situations based on evidence-based strategies.",
+        "Communication Techniques": "Discover helpful ways to communicate with your child and get tips on how to address your specific situation.",
+        "Conversation Starters": "Receive help initiating difficult conversations with suggested opening phrases and questions.",
+        "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach."
+    }
+
     # Get URL parameters
     query_params = st.query_params
     print(f"Query params: {query_params}")
     
     # Check if embedded
-    is_embedded = query_params.get("embed", False)
+    is_embedded = query_params.get("embed", "false").lower() == "true"
     print(f"Is embedded: {is_embedded}")
     
     # Get specific feature to show
@@ -1623,17 +1632,13 @@ def main():
         st.session_state["parent_name"] = query_params["prolific_id"]
         
         # Also check for other parameters
-        if "child_name" in query_params:
+        if all(key in query_params for key in ["child_name", "child_age", "situation"]):
             st.session_state["child_name"] = query_params["child_name"]
-        if "child_age" in query_params:
             st.session_state["child_age"] = query_params["child_age"]
-        if "situation" in query_params:
             st.session_state["situation"] = query_params["situation"]
-            
-        # Only mark as submitted if we have all required information
-        if all(key in st.session_state for key in ["child_name", "child_age", "situation"]):
             st.session_state["info_submitted"] = True
-            print("Info submitted set to True")
+            st.session_state["show_tutorial"] = False  # Explicitly disable tutorial
+            print("Info submitted set to True, tutorial disabled")
             
     # Adjust UI if embedded
     if is_embedded:
@@ -1652,14 +1657,6 @@ def main():
                 }
             </style>
         """, unsafe_allow_html=True)
-
-    # Initialize feature order and descriptions
-    feature_order = {
-        "Advice": "Get expert guidance on handling specific parenting situations based on evidence-based strategies.",
-        "Communication Techniques": "Discover helpful ways to communicate with your child and get tips on how to address your specific situation.",
-        "Conversation Starters": "Receive help initiating difficult conversations with suggested opening phrases and questions.",
-        "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach."
-    }
 
     if not st.session_state.get('info_submitted', False):
         print("Showing info screen - info not submitted")
@@ -1685,14 +1682,27 @@ def main():
                 st.session_state.pop('run_id', None)
                 st.rerun()
 
-    # Handle specific feature from URL parameter
-    print("Checking feature routing...")
-    if feature and feature in [f.lower().replace(" ", "_") for f in feature_order.keys()]:
-        feature_map = {f.lower().replace(" ", "_"): f for f in feature_order.keys()}
-        selected = feature_map[feature]
-        print(f"Mapped feature: {selected}")
+    # Feature selection and routing
+    if feature:
+        # Convert feature name to match URL format
+        feature_map = {
+            'role-play_simulation': 'Role-Play Simulation',
+            'role_play_simulation': 'Role-Play Simulation',
+            'advice': 'Advice',
+            'communication_techniques': 'Communication Techniques',
+            'conversation_starters': 'Conversation Starters'
+        }
+        selected = feature_map.get(feature.lower(), None)
+        if selected:
+            print(f"Mapped feature: {selected}")
+            # Skip tutorial for embedded views
+            if is_embedded:
+                st.session_state.show_tutorial = False
+        else:
+            print(f"Invalid feature parameter: {feature}")
+            selected = None
     else:
-        if 'show_tutorial' not in st.session_state:
+        if not is_embedded and 'show_tutorial' not in st.session_state:
             print("Showing tutorial")
             show_tutorial()
             return
