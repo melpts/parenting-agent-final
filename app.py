@@ -11,6 +11,8 @@ import random
 from uuid import UUID, uuid4
 from typing import Optional, Dict, Any, Tuple, List
 from functools import lru_cache
+from urllib.parse import unquote
+
 
 # Third-party imports
 import openai
@@ -500,6 +502,8 @@ def init_session_state():
         if var not in st.session_state:
             st.session_state[var] = default
 
+            
+
 @st.cache_data(ttl=3600)
 def cached_openai_call(messages, model="gpt-4", temperature=0.7, max_tokens=150):
     try:
@@ -692,11 +696,15 @@ def generate_conversation_starters(situation: str) -> str:
         return "Unable to generate conversation starters at this time."
 
 def display_advice(parent_name: str, child_age: str, situation: str):
-    """Display parenting advice in a visually engaging card layout with accessible colors"""
+    """Display parenting advice in a visually engaging card layout"""
     st.markdown("<h2 class='section-header'>Parenting Advice</h2>", unsafe_allow_html=True)
     
-    if not situation:
-        st.warning("Please describe the situation to get advice.")
+    # Add debug information
+    print(f"Displaying advice with: parent={parent_name}, age={child_age}, situation={situation}")
+    
+    if not all([parent_name, child_age, situation]):
+        st.error("Missing required information. Please ensure all fields are properly filled.")
+        print(f"Missing fields: parent_name={not bool(parent_name)}, child_age={not bool(child_age)}, situation={not bool(situation)}")
         return
 
     try:
@@ -1628,17 +1636,17 @@ def main():
     
     # Handle all URL parameters
     if "prolific_id" in query_params:
-        st.session_state["prolific_id"] = query_params["prolific_id"]
-        st.session_state["parent_name"] = query_params["prolific_id"]
-        
-        # Also check for other parameters
-        if all(key in query_params for key in ["child_name", "child_age", "situation"]):
-            st.session_state["child_name"] = query_params["child_name"]
-            st.session_state["child_age"] = query_params["child_age"]
-            st.session_state["situation"] = query_params["situation"]
-            st.session_state["info_submitted"] = True
-            st.session_state["show_tutorial"] = False  # Explicitly disable tutorial
-            print("Info submitted set to True, tutorial disabled")
+        st.session_state["prolific_id"] = unquote(query_params["prolific_id"])
+        st.session_state["parent_name"] = unquote(query_params["prolific_id"])
+    
+    # Also check for other parameters
+    if all(key in query_params for key in ["child_name", "child_age", "situation"]):
+        st.session_state["child_name"] = unquote(query_params["child_name"])
+        st.session_state["child_age"] = unquote(query_params["child_age"])
+        st.session_state["situation"] = unquote(query_params["situation"])
+        st.session_state["info_submitted"] = True
+        st.session_state["show_tutorial"] = False
+        print(f"Loaded parameters: {st.session_state}")
             
     # Adjust UI if embedded
     if is_embedded:
