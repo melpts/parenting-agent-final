@@ -1459,6 +1459,12 @@ def end_simulation(conversation_history: list, child_age: str, strategy: str):
         </div>
         """, unsafe_allow_html=True)
 
+def reset_simulation():
+    st.session_state['conversation_history'] = []
+    st.session_state['turn_count'] = 0
+    st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
+    st.session_state['simulation_id'] = str(uuid4())
+
 def show_info_screen():
     """Display the initial information collection screen with Supabase integration"""
     st.markdown("<h1 class='main-header'>Welcome to Parenting Support Bot</h1>", unsafe_allow_html=True)
@@ -1553,12 +1559,6 @@ def show_tutorial():
         if st.button("Got it, let's start!", use_container_width=True):
             st.session_state.show_tutorial = False
             st.rerun()
-
-def reset_simulation():
-    st.session_state['conversation_history'] = []
-    st.session_state['turn_count'] = 0
-    st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
-    st.session_state['simulation_id'] = str(uuid4())
 
 # Initialize Supabase manager
 supabase_manager = SupabaseManager()
@@ -1725,6 +1725,7 @@ def main():
         display_conversation_starters(st.session_state['situation'])
     elif selected == "Role-Play Simulation":
         track_feature_visit("role_play")
+        reset_simulation()
         simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
 
     if not is_embedded:  # Only show progress sidebar in non-embedded mode
