@@ -1696,6 +1696,8 @@ def main():
         feature_map = {
             'role-play_simulation': 'Role-Play Simulation',
             'role_play_simulation': 'Role-Play Simulation',
+            'role-play-simulation': 'Role-Play Simulation', 
+            'simulation': 'Role-Play Simulation',
             'advice': 'Advice',
             'communication_techniques': 'Communication Techniques',
             'conversation_starters': 'Conversation Starters'
