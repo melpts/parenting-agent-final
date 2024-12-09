@@ -1682,8 +1682,8 @@ def main():
 
     # Handle specific feature from URL parameter
     if feature and feature in [f.lower().replace(" ", "_") for f in feature_order.keys()]:
-        feature_map = {f.lower().replace(" ", "_"): f for f in feature_order.keys()}
-        selected = feature_map[feature]
+       feature_map = {f.lower().replace(" ", "_"): f for f in feature_order.keys()}
+       selected = feature_map[feature]
     else:
         if 'show_tutorial' not in st.session_state:
             show_tutorial()
