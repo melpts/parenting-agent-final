@@ -310,6 +310,73 @@ class SupabaseManager:
             print("Failed to initialize Supabase connection")
             return False
         return True
+    
+    def save_parent_information(self, parent_data: dict) -> Tuple[bool, Optional[str]]:
+        """Save parent information to Supabase
+        
+        Args:
+            parent_data (dict): Dictionary containing parent information
+                Required keys: prolific_id, child_name, child_age, situation
+                
+        Returns:
+            Tuple[bool, Optional[str]]: Success status and error message if any
+        """
+        if not self.ensure_initialized():
+            return False, "Failed to initialize Supabase connection"
+
+        try:
+            # Validate required fields
+            required_fields = ['prolific_id', 'child_name', 'child_age', 'situation']
+            missing_fields = [f for f in required_fields if f not in parent_data]
+            
+            if missing_fields:
+                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+
+            # Add timestamp
+            parent_data['created_at'] = datetime.utcnow().isoformat()
+            
+            # Insert into parent_information table
+            result = self.supabase.table('parent_information').insert(parent_data).execute()
+            
+            if not result.data:
+                raise ValueError("No data returned from insert operation")
+
+            return True, result.data[0].get('id')
+
+        except Exception as e:
+            error_msg = f"Error saving parent information: {str(e)}"
+            print(error_msg)
+            traceback.print_exc()
+            return False, error_msg
+
+    def get_parent_information(self, prolific_id: str) -> Tuple[bool, Optional[dict]]:
+        """Retrieve parent information from Supabase
+        
+        Args:
+            prolific_id (str): Prolific ID to look up
+            
+        Returns:
+            Tuple[bool, Optional[dict]]: Success status and parent data if found
+        """
+        if not self.ensure_initialized():
+            return False, None
+
+        try:
+            result = self.supabase.table('parent_information')\
+                .select("*")\
+                .eq('prolific_id', prolific_id)\
+                .order('created_at', desc=True)\
+                .limit(1)\
+                .execute()
+
+            if result.data:
+                return True, result.data[0]
+            return True, None
+
+        except Exception as e:
+            print(f"Error retrieving parent information: {e}")
+            traceback.print_exc()
+            return False, None
 
     # Simulation Methods
     def save_simulation_data(self, simulation_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
@@ -1393,8 +1460,23 @@ def end_simulation(conversation_history: list, child_age: str, strategy: str):
         """, unsafe_allow_html=True)
 
 def show_info_screen():
-    """Display the initial information collection screen"""
+    """Display the initial information collection screen with Supabase integration"""
     st.markdown("<h1 class='main-header'>Welcome to Parenting Support Bot</h1>", unsafe_allow_html=True)
+    
+    # Check if we already have parent information
+    if 'parent_info_id' in st.session_state:
+        success, parent_info = supabase_manager.get_parent_information(st.session_state.get('prolific_id'))
+        if success and parent_info:
+            st.info("Welcome back! We found your previous information.")
+            # Pre-fill the form with existing data
+            parent_name = parent_info.get('prolific_id', '')
+            child_name = parent_info.get('child_name', '')
+            child_age = parent_info.get('child_age', '')
+            situation = parent_info.get('situation', '')
+        else:
+            parent_name = child_name = child_age = situation = ''
+    else:
+        parent_name = child_name = child_age = situation = ''
     
     with st.form(key='parent_info_form'):
         st.markdown("<h2 class='section-header'>Please Tell Us About You</h2>", unsafe_allow_html=True)
@@ -1405,34 +1487,53 @@ def show_info_screen():
             </p>
         """, unsafe_allow_html=True)
         
-        parent_name = st.text_input("Prolific ID", 
+        prolific_id = st.text_input("Prolific ID", 
+                                  value=parent_name,
                                   placeholder="Enter your 24-character Prolific ID...",
                                   help="This is the ID assigned to you by Prolific")
         
         child_name = st.text_input("Child's Name", 
+                                 value=child_name,
                                  placeholder="Enter your child's name...")
         
         child_age = st.selectbox("Child's Age Range",
-                               ["3-5 years", "6-9 years", "10-12 years"])
+                               ["3-5 years", "6-9 years", "10-12 years"],
+                               index=["3-5 years", "6-9 years", "10-12 years"].index(child_age) if child_age else 0)
         
         situation = st.text_area("Situation Description",
+                               value=situation,
                                placeholder="Type your situation here...",
                                height=120)
         
         submit_button = st.form_submit_button("Start", use_container_width=True)
         
         if submit_button:
-            if not parent_name or not child_name or not situation:
+            if not prolific_id or not child_name or not situation:
                 st.error("Please fill in all fields")
-            elif len(parent_name) != 24:
+            elif len(prolific_id) != 24:
                 st.error("Please enter a valid 24-character Prolific ID")
             else:
-                st.session_state['parent_name'] = parent_name
-                st.session_state['child_name'] = child_name
-                st.session_state['child_age'] = child_age
-                st.session_state['situation'] = situation
-                st.session_state['info_submitted'] = True
-                st.rerun()
+                # Save to Supabase
+                parent_data = {
+                    'prolific_id': prolific_id,
+                    'child_name': child_name,
+                    'child_age': child_age,
+                    'situation': situation,
+                }
+                
+                success, result = supabase_manager.save_parent_information(parent_data)
+                
+                if success:
+                    # Store in session state
+                    st.session_state['parent_info_id'] = result
+                    st.session_state['parent_name'] = prolific_id
+                    st.session_state['child_name'] = child_name
+                    st.session_state['child_age'] = child_age
+                    st.session_state['situation'] = situation
+                    st.session_state['info_submitted'] = True
+                    st.rerun()
+                else:
+                    st.error(f"Failed to save information: {result}")
 
 def show_tutorial():
     """Display tutorial for first-time users"""
