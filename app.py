@@ -1564,6 +1564,8 @@ def show_tutorial():
 supabase_manager = SupabaseManager()
 
 def main():
+    print("Starting main()")
+    
     # Test Supabase connection first
     def test_supabase_connection():
         """Test Supabase connection and configuration"""
@@ -1582,13 +1584,11 @@ def main():
         print(f"Has Supabase URL: {has_url}")
         print(f"Has Supabase Key: {has_key}")
         
-        # Test connection
         try:
             manager = SupabaseManager()
             success = manager.initialize()
             if success:
                 print("✅ Supabase connection successful")
-                # Test table access
                 result = manager.supabase.table('simulations').select("count", count='exact').limit(1).execute()
                 print("✅ Simulations table accessible")
                 return True
@@ -1605,44 +1605,36 @@ def main():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
-# Get URL parameters
-    query_params = st.query_params  # Updated from experimental version
+    # Get URL parameters
+    query_params = st.query_params
+    print(f"Query params: {query_params}")
     
     # Check if embedded
     is_embedded = query_params.get("embed", False)
+    print(f"Is embedded: {is_embedded}")
     
     # Get specific feature to show
     feature = query_params.get("feature", None)
+    print(f"Feature from URL: {feature}")
     
     # Handle all URL parameters
-    try:
-        if "prolific_id" in query_params:
-            prolific_id = query_params["prolific_id"]
-            st.session_state["prolific_id"] = prolific_id
-            st.session_state["parent_name"] = prolific_id
+    if "prolific_id" in query_params:
+        st.session_state["prolific_id"] = query_params["prolific_id"]
+        st.session_state["parent_name"] = query_params["prolific_id"]
+        
+        # Also check for other parameters
+        if "child_name" in query_params:
+            st.session_state["child_name"] = query_params["child_name"]
+        if "child_age" in query_params:
+            st.session_state["child_age"] = query_params["child_age"]
+        if "situation" in query_params:
+            st.session_state["situation"] = query_params["situation"]
             
-            # Also check for other parameters
-            if "child_name" in query_params:
-                st.session_state["child_name"] = query_params["child_name"]
-            if "child_age" in query_params:
-                st.session_state["child_age"] = query_params["child_age"]
-            if "situation" in query_params:
-                st.session_state["situation"] = query_params["situation"]
-                
-            # Debug printing
-            print("Session state after parameter handling:")
-            print(f"Prolific ID: {st.session_state.get('prolific_id')}")
-            print(f"Child Name: {st.session_state.get('child_name')}")
-            print(f"Child Age: {st.session_state.get('child_age')}")
-            print(f"Situation: {st.session_state.get('situation')}")
+        # Only mark as submitted if we have all required information
+        if all(key in st.session_state for key in ["child_name", "child_age", "situation"]):
+            st.session_state["info_submitted"] = True
+            print("Info submitted set to True")
             
-            # Only mark as submitted if we have all required information
-            if all(key in st.session_state for key in ["child_name", "child_age", "situation"]):
-                st.session_state["info_submitted"] = True
-                print("Info submitted set to True")
-    except Exception as e:
-        print(f"Error handling URL parameters: {str(e)}")
-
     # Adjust UI if embedded
     if is_embedded:
         st.markdown("""
@@ -1669,11 +1661,12 @@ def main():
         "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach."
     }
 
-    
     if not st.session_state.get('info_submitted', False):
+        print("Showing info screen - info not submitted")
         show_info_screen()
         return
 
+    # Sidebar
     with st.sidebar:
         if not is_embedded:  # Only show sidebar in non-embedded mode
             st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
@@ -1693,11 +1686,14 @@ def main():
                 st.rerun()
 
     # Handle specific feature from URL parameter
+    print("Checking feature routing...")
     if feature and feature in [f.lower().replace(" ", "_") for f in feature_order.keys()]:
-       feature_map = {f.lower().replace(" ", "_"): f for f in feature_order.keys()}
-       selected = feature_map[feature]
+        feature_map = {f.lower().replace(" ", "_"): f for f in feature_order.keys()}
+        selected = feature_map[feature]
+        print(f"Mapped feature: {selected}")
     else:
         if 'show_tutorial' not in st.session_state:
+            print("Showing tutorial")
             show_tutorial()
             return
         
@@ -1709,29 +1705,33 @@ def main():
             horizontal=True,
             help="Select a tool that best matches your current needs"
         )
+        print(f"Selected from radio: {selected}")
 
     if not is_embedded:
         st.info(feature_order[selected])
 
     # Track and display selected feature
+    print(f"Processing selected feature: {selected}")
     if selected == "Advice":
+        print("Displaying Advice")
         track_feature_visit("advice")
         display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
     elif selected == "Communication Techniques":
+        print("Displaying Communication Techniques")
         track_feature_visit("communication_techniques")
         display_communication_techniques(st.session_state['situation'])
     elif selected == "Conversation Starters":
+        print("Displaying Conversation Starters")
         track_feature_visit("conversation_starters")
         display_conversation_starters(st.session_state['situation'])
     elif selected == "Role-Play Simulation":
+        print("Attempting to start simulation")
         track_feature_visit("role_play")
         reset_simulation()
         simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
 
     if not is_embedded:  # Only show progress sidebar in non-embedded mode
-       
         display_progress_sidebar(feature_order)
-
     
 if __name__ == "__main__":  # Align with def main()
     try:
