@@ -1148,6 +1148,8 @@ def display_communication_techniques(situation):
         st.error("Unable to generate communication techniques. Please try again.")
 
 def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
+    st.markdown("<h2 class='section-header'>Role-Play Simulation</h2>", unsafe_allow_html=True)
+
     # Custom CSS to style the expander
     st.markdown("""
     <style>
@@ -1745,9 +1747,9 @@ def main():
         track_feature_visit("conversation_starters")
         display_conversation_starters(st.session_state['situation'])
     elif selected == "Role-Play Simulation":
-        print("Attempting to start simulation")
+        #print("Attempting to start simulation")
         track_feature_visit("role_play")
-        reset_simulation()
+        #reset_simulation()
         simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
 
     if not is_embedded:  # Only show progress sidebar in non-embedded mode
