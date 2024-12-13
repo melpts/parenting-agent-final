@@ -1747,9 +1747,9 @@ def main():
         track_feature_visit("conversation_starters")
         display_conversation_starters(st.session_state['situation'])
     elif selected == "Role-Play Simulation":
-        #print("Attempting to start simulation")
+        print("Attempting to start simulation")
         track_feature_visit("role_play")
-        #reset_simulation()
+        reset_simulation()
         simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
 
     if not is_embedded:  # Only show progress sidebar in non-embedded mode
