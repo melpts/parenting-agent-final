@@ -13,6 +13,11 @@ from typing import Optional, Dict, Any, Tuple, List
 from functools import lru_cache
 from urllib.parse import unquote
 
+# new imports
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 # Third-party imports
 import openai
@@ -53,6 +58,36 @@ st.set_page_config(
     page_title="Parenting Support Bot",
     initial_sidebar_state="expanded"
 )
+
+# Add the middleware class here
+class CORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        ALLOWED_ORIGINS = [
+            "https://*.qualtrics.com",
+            "https://parenting-agent.streamlit.app",
+            "http://localhost:8501",
+        ]
+        
+        origin = request.headers.get("origin")
+        
+        response = await call_next(request)
+        
+        if origin in ALLOWED_ORIGINS or any(origin.endswith(domain.replace("*.", "")) for domain in ALLOWED_ORIGINS if "*." in domain):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        
+        return response
+
+# Then add the setup_cors function
+def setup_cors():
+    """Configure CORS settings for the application"""
+    if not hasattr(st, '_cors_configured'):
+        app = FastAPI()
+        app.add_middleware(CORSMiddleware)
+        st._cors_configured = True
+        return app
 
 def check_environment():
     """Check and initialize required environment variables"""
@@ -1332,74 +1367,84 @@ def handle_user_input(child_age: str, situation: str):
     handle_conversation_input(send_button, end_button, user_input, child_age, situation)
 
 def handle_conversation_input(send_button: bool, end_button: bool, user_input: str, child_age: str, situation: str):
-    if send_button and user_input:
-        feedback = provide_realtime_feedback(
-            user_input, 
-            st.session_state['strategy'],
-            st.session_state['situation'],
-            child_age,
-            st.session_state['conversation_history']
-        )
+    # Add a state check to prevent multiple submissions
+    if 'is_processing' not in st.session_state:
+        st.session_state.is_processing = False
         
-        simulation_data = {
-            "user_id": st.session_state['parent_name'],
-            "simulation_data": {
-                "parent_message": user_input,
-                "strategy": st.session_state['strategy'],
-                "child_age": child_age,
-                "situation": situation,
-                "turn_count": st.session_state['turn_count']
-            },
-            "created_at": datetime.utcnow().isoformat()
-        }
+    if send_button and user_input and not st.session_state.is_processing:
+        st.session_state.is_processing = True
         
-        success, result = supabase_manager.save_simulation_data(simulation_data)
-        if not success:
-            st.error(f"Failed to save simulation data: {result}")
-            return
+        try:
+            feedback = provide_realtime_feedback(
+                user_input, 
+                st.session_state['strategy'],
+                st.session_state['situation'],
+                child_age,
+                st.session_state['conversation_history']
+            )
             
-        if isinstance(result, str):
-            st.session_state['current_simulation_id'] = result
-        
-        # Add parent's message to history
-        st.session_state['conversation_history'].append({
-            "role": "parent",
-            "content": user_input,
-            "id": len(st.session_state['conversation_history']),
-            "feedback": feedback,
-            "strategy_used": st.session_state['strategy']
-        })
-
-        update_langsmith_run(
-            st.session_state['run_id'],
-            {
-                f"turn_{st.session_state['turn_count']}_parent": {
-                    "content": user_input,
+            simulation_data = {
+                "user_id": st.session_state['parent_name'],
+                "simulation_data": {
+                    "parent_message": user_input,
                     "strategy": st.session_state['strategy'],
-                    "feedback": feedback
-                }
+                    "child_age": child_age,
+                    "situation": situation,
+                    "turn_count": st.session_state['turn_count']
+                },
+                "created_at": datetime.utcnow().isoformat()
             }
-        )
-    
-        # Generate child's response
-        child_response = generate_child_response(
-            st.session_state['conversation_history'],
-            child_age,
-            situation,
-            st.session_state['child_mood'],
-            st.session_state['strategy'],
-            user_input
-        )
+            
+            success, result = supabase_manager.save_simulation_data(simulation_data)
+            if not success:
+                st.error(f"Failed to save simulation data: {result}")
+                return
+                
+            if isinstance(result, str):
+                st.session_state['current_simulation_id'] = result
+            
+            # Add parent's message to history
+            st.session_state['conversation_history'].append({
+                "role": "parent",
+                "content": user_input,
+                "id": len(st.session_state['conversation_history']),
+                "feedback": feedback,
+                "strategy_used": st.session_state['strategy']
+            })
+
+            update_langsmith_run(
+                st.session_state['run_id'],
+                {
+                    f"turn_{st.session_state['turn_count']}_parent": {
+                        "content": user_input,
+                        "strategy": st.session_state['strategy'],
+                        "feedback": feedback
+                    }
+                }
+            )
         
-        # Add child's response to history
-        st.session_state['conversation_history'].append({
-            "role": "child",
-            "content": child_response,
-            "id": len(st.session_state['conversation_history'])
-        })
-        
-        st.session_state['turn_count'] += 1
-        st.rerun()
+            # Generate child's response
+            child_response = generate_child_response(
+                st.session_state['conversation_history'],
+                child_age,
+                situation,
+                st.session_state['child_mood'],
+                st.session_state['strategy'],
+                user_input
+            )
+            
+            # Add child's response to history
+            st.session_state['conversation_history'].append({
+                "role": "child",
+                "content": child_response,
+                "id": len(st.session_state['conversation_history'])
+            })
+            
+            st.session_state['turn_count'] += 1
+            
+        finally:
+            st.session_state.is_processing = False
+            st.rerun()
     
     if end_button:
         update_langsmith_run(
@@ -1576,6 +1621,8 @@ supabase_manager = SupabaseManager()
 
 def main():
     print("Starting main()")
+
+    app = setup_cors()
     
     # Test Supabase connection first
     def test_supabase_connection():
