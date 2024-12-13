@@ -1332,7 +1332,26 @@ def handle_user_input(child_age: str, situation: str):
     handle_conversation_input(send_button, end_button, user_input, child_age, situation)
 
 def handle_conversation_input(send_button: bool, end_button: bool, user_input: str, child_age: str, situation: str):
+    # Add debounce check
+    if 'last_submit_time' not in st.session_state:
+        st.session_state['last_submit_time'] = 0
+    
+    current_time = time.time()
+    # Prevent multiple submissions within 2 seconds
+    if current_time - st.session_state['last_submit_time'] < 2:
+        return
+        
     if send_button and user_input:
+        st.session_state['last_submit_time'] = current_time
+        
+        # Store current input to prevent loss
+        if 'current_input' not in st.session_state:
+            st.session_state['current_input'] = user_input
+        elif st.session_state['current_input'] == user_input:
+            # Skip if this is a duplicate submission of the same input
+            return
+        st.session_state['current_input'] = user_input
+
         feedback = provide_realtime_feedback(
             user_input, 
             st.session_state['strategy'],
@@ -1399,6 +1418,8 @@ def handle_conversation_input(send_button: bool, end_button: bool, user_input: s
         })
         
         st.session_state['turn_count'] += 1
+        # Clear the current input after successful processing
+        st.session_state['current_input'] = ""
         st.rerun()
     
     if end_button:
