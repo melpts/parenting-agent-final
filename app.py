@@ -1367,95 +1367,115 @@ def handle_user_input(child_age: str, situation: str):
     handle_conversation_input(send_button, end_button, user_input, child_age, situation)
 
 def handle_conversation_input(send_button: bool, end_button: bool, user_input: str, child_age: str, situation: str):
-    # Add a state check to prevent multiple submissions
-    if 'is_processing' not in st.session_state:
-        st.session_state.is_processing = False
+    # Debug prints
+    print(f"Send button: {send_button}")
+    print(f"User input: {user_input}")
+    
+    # Add a unique key for this conversation turn
+    turn_key = f"turn_{st.session_state.get('turn_count', 0)}"
+    
+    # Check if we're in an iframe
+    is_embedded = st.query_params.get("embed", "false").lower() == "true"
+    
+    # Prevent processing empty input
+    if send_button and not user_input:
+        return
         
-    if send_button and user_input and not st.session_state.is_processing:
+    # Add a state check to prevent multiple submissions
+    if send_button and user_input and not st.session_state.get('is_processing', False):
         st.session_state.is_processing = True
         
         try:
+            # Generate feedback
             feedback = provide_realtime_feedback(
                 user_input, 
-                st.session_state['strategy'],
-                st.session_state['situation'],
+                st.session_state.get('strategy', 'Active Listening'),
+                situation,
                 child_age,
-                st.session_state['conversation_history']
+                st.session_state.get('conversation_history', [])
             )
             
-            simulation_data = {
-                "user_id": st.session_state['parent_name'],
-                "simulation_data": {
-                    "parent_message": user_input,
-                    "strategy": st.session_state['strategy'],
-                    "child_age": child_age,
-                    "situation": situation,
-                    "turn_count": st.session_state['turn_count']
-                },
-                "created_at": datetime.utcnow().isoformat()
-            }
-            
-            success, result = supabase_manager.save_simulation_data(simulation_data)
-            if not success:
-                st.error(f"Failed to save simulation data: {result}")
-                return
-                
-            if isinstance(result, str):
-                st.session_state['current_simulation_id'] = result
-            
-            # Add parent's message to history
-            st.session_state['conversation_history'].append({
+            # Create a new conversation entry
+            new_parent_message = {
                 "role": "parent",
                 "content": user_input,
-                "id": len(st.session_state['conversation_history']),
+                "id": len(st.session_state.get('conversation_history', [])),
                 "feedback": feedback,
-                "strategy_used": st.session_state['strategy']
-            })
-
-            update_langsmith_run(
-                st.session_state['run_id'],
-                {
-                    f"turn_{st.session_state['turn_count']}_parent": {
-                        "content": user_input,
-                        "strategy": st.session_state['strategy'],
+                "strategy_used": st.session_state.get('strategy', 'Active Listening'),
+                "timestamp": datetime.utcnow().isoformat(),
+                "turn_key": turn_key
+            }
+            
+            # Initialize conversation history if it doesn't exist
+            if 'conversation_history' not in st.session_state:
+                st.session_state.conversation_history = []
+            
+            # Add parent's message
+            st.session_state.conversation_history.append(new_parent_message)
+            
+            # Save to Supabase
+            try:
+                simulation_data = {
+                    "user_id": st.session_state.get('parent_name', 'unknown'),
+                    "simulation_data": {
+                        "parent_message": user_input,
+                        "strategy": st.session_state.get('strategy', 'Active Listening'),
+                        "child_age": child_age,
+                        "situation": situation,
+                        "turn_count": st.session_state.get('turn_count', 0),
                         "feedback": feedback
-                    }
+                    },
+                    "created_at": datetime.utcnow().isoformat()
                 }
-            )
-        
+                
+                success, result = supabase_manager.save_simulation_data(simulation_data)
+                if success and isinstance(result, str):
+                    st.session_state['current_simulation_id'] = result
+            except Exception as e:
+                print(f"Error saving to Supabase: {e}")
+            
             # Generate child's response
-            child_response = generate_child_response(
-                st.session_state['conversation_history'],
-                child_age,
-                situation,
-                st.session_state['child_mood'],
-                st.session_state['strategy'],
-                user_input
-            )
+            try:
+                child_response = generate_child_response(
+                    st.session_state.conversation_history,
+                    child_age,
+                    situation,
+                    st.session_state.get('child_mood', 'neutral'),
+                    st.session_state.get('strategy', 'Active Listening'),
+                    user_input
+                )
+                
+                # Add child's response to history
+                st.session_state.conversation_history.append({
+                    "role": "child",
+                    "content": child_response,
+                    "id": len(st.session_state.conversation_history),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "turn_key": turn_key
+                })
+            except Exception as e:
+                print(f"Error generating child response: {e}")
+                child_response = "I'm not sure what to say..."
             
-            # Add child's response to history
-            st.session_state['conversation_history'].append({
-                "role": "child",
-                "content": child_response,
-                "id": len(st.session_state['conversation_history'])
-            })
-            
-            st.session_state['turn_count'] += 1
+            # Increment turn count
+            st.session_state['turn_count'] = st.session_state.get('turn_count', 0) + 1
             
         finally:
             st.session_state.is_processing = False
+            # Force rerun to update UI
             st.rerun()
     
     if end_button:
-        update_langsmith_run(
-            st.session_state['run_id'],
-            {
-                "conversation_ended": True,
-                "total_turns": st.session_state['turn_count']
-            }
-        )
-        end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
-
+        try:
+            end_simulation(
+                st.session_state.get('conversation_history', []), 
+                child_age, 
+                st.session_state.get('strategy', 'Active Listening')
+            )
+        except Exception as e:
+            print(f"Error ending simulation: {e}")
+            st.error("An error occurred while ending the simulation.")
+            
 def display_conversation_playback(conversation_history):
     st.markdown("<h2 class='section-header'>Conversation Review</h2>", unsafe_allow_html=True)
     
@@ -1623,7 +1643,7 @@ def main():
     print("Starting main()")
 
     app = setup_cors()
-    
+
     # Test Supabase connection first
     def test_supabase_connection():
         """Test Supabase connection and configuration"""
@@ -1663,7 +1683,7 @@ def main():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
-    # Initialize feature order and descriptions - Define this early as it's used in multiple places
+    # Initialize feature order and descriptions
     feature_order = {
         "Advice": "Get expert guidance on handling specific parenting situations based on evidence-based strategies.",
         "Communication Techniques": "Discover helpful ways to communicate with your child and get tips on how to address your specific situation.",
@@ -1671,7 +1691,7 @@ def main():
         "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach."
     }
 
-    # Get URL parameters
+    # Get URL parameters and handle them
     query_params = st.query_params
     print(f"Query params: {query_params}")
     
@@ -1715,14 +1735,15 @@ def main():
             </style>
         """, unsafe_allow_html=True)
 
+    # Show info screen if needed
     if not st.session_state.get('info_submitted', False):
         print("Showing info screen - info not submitted")
         show_info_screen()
         return
 
-    # Sidebar
+    # Sidebar (non-embedded mode only)
     with st.sidebar:
-        if not is_embedded:  # Only show sidebar in non-embedded mode
+        if not is_embedded:
             st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
             st.markdown(f"""
                 <div class='info-section'>
@@ -1754,7 +1775,6 @@ def main():
         selected = feature_map.get(feature.lower(), None)
         if selected:
             print(f"Mapped feature: {selected}")
-            # Skip tutorial for embedded views
             if is_embedded:
                 st.session_state.show_tutorial = False
         else:
@@ -1776,31 +1796,72 @@ def main():
         )
         print(f"Selected from radio: {selected}")
 
+    # Show feature description if not embedded
     if not is_embedded:
         st.info(feature_order[selected])
 
-    # Track and display selected feature
+    # Process and display selected feature
     print(f"Processing selected feature: {selected}")
     if selected == "Advice":
         print("Displaying Advice")
         track_feature_visit("advice")
         display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+    
     elif selected == "Communication Techniques":
         print("Displaying Communication Techniques")
         track_feature_visit("communication_techniques")
         display_communication_techniques(st.session_state['situation'])
+    
     elif selected == "Conversation Starters":
         print("Displaying Conversation Starters")
         track_feature_visit("conversation_starters")
         display_conversation_starters(st.session_state['situation'])
-    elif selected == "Role-Play Simulation":
-        #print("Attempting to start simulation")
+    
+    elif selected == "Role-Play Simulation" or selected == "role-play_simulation":
+        print("Attempting to start simulation")
         track_feature_visit("role_play")
-        #reset_simulation()
-        simulate_conversation_streamlit(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
+        
+        # Simulation initialization and setup
+        if st.query_params.get("embed", "false").lower() == "true":
+            if 'simulation_initialized' not in st.session_state:
+                reset_simulation()
+                st.session_state.simulation_initialized = True
+        
+        # Ensure required session state variables exist
+        if not all(key in st.session_state for key in ['parent_name', 'child_name', 'child_age', 'situation']):
+            print("Missing required session state variables")
+            # Try to get from URL parameters
+            prolific_id = st.query_params.get("prolific_id")
+            child_name = st.query_params.get("child_name")
+            child_age = st.query_params.get("child_age")
+            situation = st.query_params.get("situation")
+            
+            if all([prolific_id, child_name, child_age, situation]):
+                st.session_state['parent_name'] = unquote(prolific_id)
+                st.session_state['child_name'] = unquote(child_name)
+                st.session_state['child_age'] = unquote(child_age)
+                st.session_state['situation'] = unquote(situation)
+                print("Successfully loaded parameters from URL")
+            else:
+                print("Missing required URL parameters")
+                st.error("Missing required information. Please ensure all fields are properly filled.")
+                return
+        
+        # Initialize conversation history if not exists
+        if 'conversation_history' not in st.session_state:
+            st.session_state['conversation_history'] = []
+        
+        # Start the simulation
+        simulate_conversation_streamlit(
+            st.session_state['parent_name'],
+            st.session_state['child_age'],
+            st.session_state['situation']
+        )
 
-    if not is_embedded:  # Only show progress sidebar in non-embedded mode
+    # Show progress sidebar in non-embedded mode
+    if not is_embedded:
         display_progress_sidebar(feature_order)
+
     
 if __name__ == "__main__":  # Align with def main()
     try:
