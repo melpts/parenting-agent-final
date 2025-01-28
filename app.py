@@ -11,13 +11,6 @@ import random
 from uuid import UUID, uuid4
 from typing import Optional, Dict, Any, Tuple, List
 from functools import lru_cache
-from urllib.parse import unquote
-
-# new imports
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 
 # Third-party imports
 import openai
@@ -38,7 +31,6 @@ from langchain.output_parsers import StructuredOutputParser, ResponseSchema
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_community.callbacks.manager import get_openai_callback
 
-
 # citation imports
 from conversation_starter_citations import CONVERSATION_STARTER_CITATIONS
 from communication_strategies_citations import COMMUNICATION_STRATEGIES_CITATIONS
@@ -58,36 +50,6 @@ st.set_page_config(
     page_title="Parenting Support Bot",
     initial_sidebar_state="expanded"
 )
-
-# Add the middleware class here
-class CORSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        ALLOWED_ORIGINS = [
-            "https://*.qualtrics.com",
-            "https://parenting-agent.streamlit.app",
-            "http://localhost:8501",
-        ]
-        
-        origin = request.headers.get("origin")
-        
-        response = await call_next(request)
-        
-        if origin in ALLOWED_ORIGINS or any(origin.endswith(domain.replace("*.", "")) for domain in ALLOWED_ORIGINS if "*." in domain):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        
-        return response
-
-# Then add the setup_cors function
-def setup_cors():
-    """Configure CORS settings for the application"""
-    if not hasattr(st, '_cors_configured'):
-        app = FastAPI()
-        app.add_middleware(CORSMiddleware)
-        st._cors_configured = True
-        return app
 
 def check_environment():
     """Check and initialize required environment variables"""
@@ -110,9 +72,6 @@ def check_environment():
     openai.api_key = os.getenv('OPENAI_API_KEY') or st.secrets.get('OPENAI_API_KEY')
     os.environ['LANGCHAIN_API_KEY'] = os.getenv('LANGCHAIN_API_KEY') or st.secrets.get('LANGCHAIN_API_KEY')
 
-# Initialize LangSmith Client
-# smith_client = Client()
-
 def create_langsmith_run(name: str, inputs: Dict[str, Any], fallback_id: Optional[str] = None) -> str:
     """Create a unique identifier for tracking runs"""
     return str(uuid4())
@@ -129,135 +88,226 @@ def setup_memory():
 memory = setup_memory()
 
 CUSTOM_CSS = """
-    <style>
-    /* General Typography */
-    body {
-        font-family: 'Inter', sans-serif;
-        color: #1a1a1a;
-    }
+<style>
+/* General Typography */
+body {
+    font-family: 'Inter', sans-serif;
+    color: #1a1a1a;
+}
 
-    h1, h2, h3, .section-header {
-        font-family: 'Roboto', sans-serif;
-        color: #2563eb;
-    }
+h1, h2, h3, .section-header {
+    font-family: 'Roboto', sans-serif;
+    color: #2563eb;
+}
 
-    .main-header {
-        font-size: 2.5em;
-        font-weight: 800;
-        margin-bottom: 1.5em;
-        color: #2563eb;
-    }
+.main-header {
+    font-size: 2.5em;
+    font-weight: 800;
+    margin-bottom: 1.5em;
+    color: #2563eb;
+}
 
-    .section-header {
-        font-size: 2em;
-        font-weight: 700;
-        margin: 1.2em 0;
-        border-bottom: 3px solid #60a5fa;
-        padding-bottom: 0.5em;
-    }
+.section-header {
+    font-size: 2em;
+    font-weight: 700;
+    margin: 1.2em 0;
+    border-bottom: 3px solid #60a5fa;
+    padding-bottom: 0.5em;
+}
 
-    .description-text {
-        font-size: 1.1em;
-        line-height: 1.8;
-        margin: 1.2em 0;
-    }
+/* Persona UI Components */
+.persona-container {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
 
-    /* Button Styling */
-    div.stButton > button {
-        height: 3em;
-        font-size: 1em;
-        font-weight: 500;
-        background-color: #2563eb;
-        color: white;
-        border-radius: 0.5em;
-        transition: all 0.2s ease;
-    }
+.persona-header {
+    margin-bottom: 16px;
+}
 
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
+.persona-header h3 {
+    color: #4338CA;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
 
-    /* Message Bubbles */
+/* Button Styling */
+div.stButton > button {
+    height: 3em;
+    font-size: 1em;
+    font-weight: 500;
+    background-color: #4338CA;
+    color: white;
+    border-radius: 0.5em;
+    transition: all 0.2s ease;
+    width: 100%;
+    margin-bottom: 1rem;
+}
+
+div.stButton > button:hover {
+    transform: translateY(-2px);
+    background-color: #4F46E5;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+div.stButton > button[kind="secondary"] {
+    background-color: #E5E7EB;
+    color: #374151;
+}
+
+div.stButton > button[kind="secondary"]:hover {
+    background-color: #D1D5DB;
+}
+
+/* Form Elements */
+.stTextInput input, .stTextArea textarea {
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 1em;
+    transition: border-color 0.2s;
+}
+
+.stTextInput input:focus, .stTextArea textarea:focus {
+    border-color: #4338CA;
+    box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.1);
+}
+
+/* Tabs Styling */
+.stTabs {
+    background: #F3F4F6;
+    padding: 8px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.stTab {
+    background: white;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 500;
+}
+
+.stTab[aria-selected="true"] {
+    background-color: #4338CA;
+    color: white;
+}
+
+/* Checkbox and Radio Styling */
+.stCheckbox, .stRadio {
+    padding: 8px;
+    border-radius: 6px;
+    transition: background-color 0.2s;
+}
+
+.stCheckbox:hover, .stRadio:hover {
+    background-color: #F3F4F6;
+}
+
+/* Selectbox Styling */
+.stSelectbox [data-baseweb=select] {
+    background-color: white;
+    border: 2px solid #4338CA;
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+
+.stSelectbox [data-baseweb=select]:hover {
+    border-color: #4F46E5;
+    box-shadow: 0 2px 4px rgba(99, 102, 241, 0.1);
+}
+
+/* Slider Styling */
+.stSlider {
+    padding: 10px 0;
+}
+
+.stSlider .stSlideHandle {
+    background-color: #4338CA;
+    border: 2px solid white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Grid Layout */
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+}
+
+/* Form Section Styling */
+.form-section {
+    background: #F9FAFB;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.form-section-header {
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 12px;
+}
+
+/* Helper Text */
+.helper-text {
+    color: #6B7280;
+    font-size: 0.875rem;
+    margin-top: 4px;
+}
+
+/* Message Styling */
+.message-parent, .message-child {
+    padding: 1.2em;
+    border-radius: 1em;
+    margin: 0.8em 0;
+    max-width: 80%;
+}
+
+.message-parent {
+    background-color: #4338CA;
+    color: white;
+    margin-left: auto;
+}
+
+.message-child {
+    background-color: #F3F4F6;
+    color: #1A1A1A;
+    margin-right: auto;
+}
+
+/* Save Profile Section */
+.save-profile-section {
+    border-top: 1px solid #E5E7EB;
+    padding-top: 16px;
+    margin-top: 24px;
+}
+
+/* Feedback Messages */
+.stInfo, .stSuccess, .stWarning, .stError {
+    padding: 12px;
+    border-radius: 8px;
+    margin: 8px 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .grid-container {
+        grid-template-columns: 1fr;
+    }
+    
     .message-parent, .message-child {
-        padding: 1.2em;
-        border-radius: 1em;
-        margin: 0.8em 0;
-        max-width: 80%;
+        max-width: 90%;
     }
-
-    .message-parent {
-        background-color: #60a5fa;
-        color: white;
-        margin-left: auto;
-    }
-
-    .message-child {
-        background-color: #f3f4f6;
-        color: #1a1a1a;
-        margin-right: auto;
-    }
-
-    /* New Styles for UI Updates */
-    .stSelectbox {
-        margin-bottom: 1rem;
-    }
-    
-    .stSelectbox > div > div {
-        background-color: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 0.5rem;
-    }
-    
-    /* Situation Box Styling */
-    .situation-box {
-        background-color: #f0f7ff;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 0.5rem;
-        border: 1px solid #e2e8f0;
-    }
-    
-    /* Control Feedback Styling */
-    .control-feedback {
-        margin-top: 0.5rem;
-        padding: 1rem;
-        border-radius: 0.5rem;
-    }
-    
-    .pause-feedback {
-        background-color: #f0f7ff;
-    }
-    
-    .hints-feedback {
-        background-color: #f0f7ff;
-    }
-    
-    .reformulate-feedback {
-        background-color: #fff7e6;
-    }
-
-    /* Strategy Selection Styling */
-    .strategy-select {
-        margin: 1rem 0;
-        padding: 0.5rem;
-        border-radius: 0.5rem;
-        border: 1px solid #e2e8f0;
-    }
-
-    /* Conversation Section Styling */
-    .conversation-section {
-        margin: 2rem 0;
-    }
-
-    .conversation-input {
-        margin: 1rem 0;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border: 1px solid #e2e8f0;
-    }
-    </style>
+}
+</style>
 """
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # Strategy Explanations
 STRATEGY_EXPLANATIONS = {
@@ -290,9 +340,6 @@ STRATEGY_EXPLANATIONS = {
     """
 }
 
-
-# custom CSS
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 class SupabaseManager:
     def __init__(self):
         if hasattr(st, 'secrets'):
@@ -347,7 +394,7 @@ class SupabaseManager:
             print("Failed to initialize Supabase connection")
             return False
         return True
-    
+
     def save_parent_information(self, parent_data: dict) -> Tuple[bool, Optional[str]]:
         """Save parent information to Supabase
         
@@ -415,7 +462,6 @@ class SupabaseManager:
             traceback.print_exc()
             return False, None
 
-    # Simulation Methods
     def save_simulation_data(self, simulation_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """Save simulation data with validation and error handling"""
         if not self.ensure_initialized():
@@ -497,32 +543,418 @@ class SupabaseManager:
             print(f"Error fetching simulations: {e}")
             traceback.print_exc()
             return False, []
+
+    def save_item_to_supabase(self, parent_id: str, item_type: str, title: str, content: str, metadata: dict = None) -> Tuple[bool, Optional[str]]:
+        """Save an item to the saved_content table
         
-# Initialize Supabase manager
+        Args:
+            parent_id (str): Prolific ID of the parent
+            item_type (str): Type of content ('advice', 'technique', 'starter')
+            title (str): Title of the saved item
+            content (str): Main content text
+            metadata (dict, optional): Additional metadata as JSON
+        
+        Returns:
+            Tuple[bool, Optional[str]]: Success status and error message if any
+        """
+        if not self.ensure_initialized():
+            return False, "Failed to initialize Supabase connection"
+
+        try:
+            data = {
+                "parent_id": parent_id,
+                "item_type": item_type,
+                "title": title,
+                "content": content,
+                "metadata": metadata or {},
+                "saved_at": datetime.utcnow().isoformat()
+            }
+
+            result = self.supabase.table('saved_content').insert(data).execute()
+            
+            if not result.data:
+                raise ValueError("No data returned from insert operation")
+
+            return True, None
+
+        except Exception as e:
+            error_msg = f"Error saving content: {str(e)}"
+            print(error_msg)
+            traceback.print_exc()
+            return False, error_msg
+
+    def get_saved_items(self, parent_id: str, item_type: Optional[str] = None) -> Tuple[bool, List[Dict[str, Any]]]:
+        """Retrieve saved items for a parent
+        
+        Args:
+            parent_id (str): Prolific ID of the parent
+            item_type (str, optional): Filter by specific type
+            
+        Returns:
+            Tuple[bool, List[Dict[str, Any]]]: Success status and list of saved items
+        """
+        if not self.ensure_initialized():
+            return False, []
+
+        try:
+            query = self.supabase.table('saved_content').select("*").eq('parent_id', parent_id)
+            
+            if item_type:
+                query = query.eq('item_type', item_type)
+                
+            result = query.order('saved_at', desc=True).execute()
+            
+            return True, result.data if result.data else []
+
+        except Exception as e:
+            print(f"Error retrieving saved items: {e}")
+            traceback.print_exc()
+            return False, []
+
+    def delete_saved_item(self, item_id: str) -> Tuple[bool, Optional[str]]:
+        """Delete a saved item
+        
+        Args:
+            item_id (str): ID of the item to delete
+            
+        Returns:
+            Tuple[bool, Optional[str]]: Success status and error message if any
+        """
+        if not self.ensure_initialized():
+            return False, "Failed to initialize Supabase connection"
+
+        try:
+            result = self.supabase.table('saved_content').delete().eq('id', item_id).execute()
+            return True, None
+        except Exception as e:
+            error_msg = f"Error deleting saved item: {str(e)}"
+            print(error_msg)
+            return False, error_msg
+
+class PersonaManager:
+    def __init__(self, supabase_manager):
+        self.supabase = supabase_manager
+        
+    def save_persona(self, parent_id: str, persona_data: dict) -> Tuple[bool, str]:
+        try:
+            if not self.supabase.ensure_initialized():
+                return False, "Database not initialized"
+                
+            data = {
+                'parent_id': parent_id,
+                'persona_name': persona_data.get('name'),
+                'persona_data': persona_data,
+                'created_at': datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.supabase.table('child_personas').insert(data).execute()
+            return (True, "Persona saved successfully") if result.data else (False, "Failed to save persona")
+            
+        except Exception as e:
+            print(f"Error saving persona: {e}")
+            return False, str(e)
+    
+    def load_personas(self, parent_id: str) -> Tuple[bool, List[dict]]:
+        try:
+            result = self.supabase.supabase.table('child_personas')\
+                .select("*")\
+                .eq('parent_id', parent_id)\
+                .execute()
+                
+            return (True, result.data) if result.data else (True, [])
+            
+        except Exception as e:
+            print(f"Error loading personas: {e}")
+            return False, []
+    
+    def update_persona(self, persona_id: str, updated_data: dict) -> Tuple[bool, str]:
+        try:
+            result = self.supabase.supabase.table('child_personas')\
+                .update({"persona_data": updated_data})\
+                .eq('id', persona_id)\
+                .execute()
+                
+            return (True, "Persona updated successfully") if result.data else (False, "Failed to update persona")
+            
+        except Exception as e:
+            print(f"Error updating persona: {e}")
+            return False, str(e)
+    
+    def delete_persona(self, persona_id: str) -> Tuple[bool, str]:
+        try:
+            result = self.supabase.supabase.table('child_personas')\
+                .delete()\
+                .eq('id', persona_id)\
+                .execute()
+                
+            return (True, "Persona deleted successfully") if result.data else (False, "Failed to delete persona")
+            
+        except Exception as e:
+            print(f"Error deleting persona: {e}")
+            return False, str(e)
+        
+# Initialize managers
 supabase_manager = SupabaseManager()
+persona_manager = PersonaManager(supabase_manager)
 
-def setup_memory():
-    """Sets up memory for the application"""
-    return ConversationBufferWindowMemory(k=3)
+def display_persona_customization():
+    """Display and handle the enhanced persona customization interface"""
+    st.markdown("""
+        <style>
+        /* Persona Customization Styles */
+        .persona-container {
+            background-color: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .option-button {
+            background-color: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 20px;
+            padding: 8px 16px;
+            margin: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .option-button.selected {
+            background-color: #2563eb;
+            color: white;
+            border-color: #2563eb;
+        }
+        
+        .behavior-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 8px;
+            margin: 12px 0;
+        }
+        
+        .behavior-item {
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .behavior-item.selected {
+            background-color: #bfdbfe;
+            border-color: #3b82f6;
+            color: #1e40af;
+        }
+        
+        .form-section {
+            background-color: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .section-title {
+            color: #2563eb;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-# Initialize Memory
-memory = setup_memory()
+    # Button to show customization
+    if not st.session_state.get('show_persona_customization', False):
+        if st.button("Customize Response Style", type="primary", use_container_width=True):
+            st.session_state['show_persona_customization'] = True
+            st.rerun()
+        return
+
+    st.markdown("### Customize Child Persona")
+    
+    # Load saved profiles first
+    st.markdown("#### Saved Child Profiles")
+    saved_profiles = st.session_state.get('saved_personas', {})
+    profile_options = ["(None)"] + list(saved_profiles.keys())
+    selected_profile = st.selectbox(
+        "Select a saved profile to load",
+        options=profile_options,
+        key="profile_selector"
+    )
+
+    # If a profile is selected, load it
+    if selected_profile != "(None)" and selected_profile in saved_profiles:
+        profile_data = saved_profiles[selected_profile]
+        if 'child_persona' not in st.session_state:
+            st.session_state['child_persona'] = {}
+        st.session_state['child_persona'] = profile_data
+        
+    with st.container():
+        st.markdown("### Communication Style")
+        communication_style = st.text_area(
+            "Describe how your child typically communicates",
+            value=st.session_state.get('temp_communication_style', ''),
+            placeholder="e.g., how they express themselves in everyday conversations, asks many 'why' questions, or uses short answers...",
+            help="Write a few sentences about how they normally speak or express themselves",
+            height=130
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### Emotional Expression")
+            emotion_options = ["Very Reserved", "Somewhat Reserved", "Balanced", 
+                             "Somewhat Expressive", "Very Expressive"]
+            emotion_style = st.radio(
+                "How does your child typically show their emotions? Choose emotional expression level",
+                emotion_options,
+                index=emotion_options.index(st.session_state.get('temp_emotion_style', 'Balanced')),
+                horizontal=True
+            )
+
+        with col2:
+            st.markdown("#### Response Length")
+            length_options = ["Very Brief", "Brief", "Medium", "Detailed", "Very Detailed"]
+            response_length = st.radio(
+                "How detailed are your child's typical responses? Choose typical response length",
+                length_options,
+                index=length_options.index(st.session_state.get('temp_response_length', 'Medium')),
+                horizontal=True
+            )
+
+        st.markdown("#### Common Behaviors")
+        behavior_options = [
+            "Argues and debates frequently",
+            "Becomes quiet when upset",
+            "Physically expressive",
+            "Uses humor or sarcasm",
+            "Asks many questions",
+            "Negotiates extensively",
+            "Gets loud when excited",
+            "Gives minimal responses",
+            "Shows physical affection",
+            "Changes subject often",
+            "Takes time to process"
+        ]
+        
+        selected_behaviors = st.multiselect(
+            "Select all the behaviors that match your child's typical communication style. These help create more realistic responses in the simulation.",
+            options=behavior_options,
+            default=st.session_state.get('temp_behaviors', [])
+        )
+
+        # Profile saving section
+        st.markdown("---")
+        profile_name = st.text_input(
+            "Profile Name",
+            value=st.session_state.get('temp_profile_name', ''),
+            placeholder="e.g., 'After School Mood', 'Weekend Chatty', etc."
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✕ Close", type="secondary", use_container_width=True):
+                st.session_state['show_persona_customization'] = False
+                st.rerun()
+
+        with col2:
+            if st.button("💾 Save Profile", type="primary", use_container_width=True):
+                if not communication_style:
+                    st.error("Please describe your child's communication style before saving.")
+                elif not profile_name:
+                    st.error("Please provide a name for this profile.")
+                else:
+                    new_persona = {
+                        "type": "detailed",
+                        "communication_style": communication_style,
+                        "emotion_style": emotion_style,
+                        "response_length": response_length,
+                        "response_patterns": selected_behaviors,
+                        "typical_phrases": communication_style,
+                        "communication_preferences": selected_behaviors
+                    }
+                    
+                    # Save to session state
+                    if 'saved_personas' not in st.session_state:
+                        st.session_state['saved_personas'] = {}
+                    st.session_state['saved_personas'][profile_name] = new_persona
+                    
+                    # Update current persona
+                    st.session_state['child_persona'] = new_persona
+                    update_child_mood(new_persona)
+                    
+                    # Save to database
+                    if hasattr(st.session_state, 'supabase_client'):
+                        try:
+                            success, result = supabase_manager.save_persona(
+                                st.session_state['parent_name'],
+                                {
+                                    "name": profile_name,
+                                    "data": new_persona
+                                }
+                            )
+                            if success:
+                                st.success(f"Profile '{profile_name}' saved successfully!")
+                            else:
+                                st.error(f"Failed to save profile: {result}")
+                        except Exception as e:
+                            st.error(f"Error saving profile: {str(e)}")
+                    else:
+                        st.success(f"Profile '{profile_name}' saved successfully!")
+                    
+                    # Clear temporary states
+                    st.session_state['show_persona_customization'] = False
+                    st.rerun()
+
+    # Store current values in temporary session state
+    st.session_state['temp_communication_style'] = communication_style
+    st.session_state['temp_emotion_style'] = emotion_style
+    st.session_state['temp_response_length'] = response_length
+    st.session_state['temp_behaviors'] = selected_behaviors
+    st.session_state['temp_profile_name'] = profile_name
 
 def init_session_state():
+    """Initialize all session state variables with proper defaults."""
     session_vars = {
+        # Core session identifiers
         'run_id': str(uuid4()),
-        'agentState': "start",
-        'consent': False,
-        'exp_data': True,
-        'llm_model': "gpt-4",
-        'simulation_ended': False,
-        'stored_responses': {},
-        'info_submitted': False,
-        'conversation_history': [],
-        'child_mood': random.choice(['cooperative', 'defiant', 'distracted']),
-        'turn_count': 0,
-        'strategy': "Active Listening",
         'simulation_id': str(uuid4()),
+        'current_simulation_id': None,
+        
+        # User information
+        'info_submitted': False,
+        'parent_name': None,
+        'child_name': None,
+        'child_age': None,
+        'situation': None,
+        
+        # Conversation tracking
+        'conversation_history': [],
+        'turn_count': 0,
+        'stored_responses': {},
+        'simulation_ended': False,
+        
+        # Child persona - Initialize with default values
+        'child_persona': {
+            'type': 'detailed',
+            'communication_style': '',
+            'emotion_style': 'Balanced',
+            'response_length': 'Medium',
+            'response_patterns': [],
+            'typical_phrases': '',
+            'communication_preferences': []
+        },
+        
+        # Child mood will be determined based on persona and context
+        'child_mood': 'neutral',
+        
+        # UI state
+        'show_persona_customization': False,
+        'strategy': "Active Listening",  # Default strategy
+        'show_tutorial': True,
+        
+        # Feature tracking
         'visited_features': set(),
         'feature_outputs': {
             'advice': {},
@@ -530,14 +962,73 @@ def init_session_state():
             'communication_techniques': {},
             'simulation_history': []
         },
-        'show_tutorial': False  
+        
+        # Feature usage tracking
+        'feature_usage': {
+            'advice_views': 0,
+            'conversation_starter_uses': 0,
+            'technique_views': 0,
+            'simulation_runs': 0
+        },
+        
+        # User preferences and settings
+        'consent': False,
+        'exp_data': True,
+        'llm_model': "gpt-4",
+        
+        # Parent information tracking
+        'parent_info_id': None,
+        'saved_personas': {},
+        
+        # Error tracking
+        'last_error': None,
+        'error_count': 0,
+        
+        # Strategy states
+        'active_strategy': None,
+        'strategy_feedback': {},
+        
+        # Conversation state tracking
+        'last_parent_response': None,
+        'last_child_response': None,
+        'conversation_context': [],
+        
+        # Performance metrics
+        'response_times': [],
+        'strategy_usage': {},
+        'feedback_given': [],
+        
+        # UI preferences
+        'show_feedback': True,
+        'show_hints': True,
+        'compact_view': False,
+        
+        # Session analytics
+        'session_start_time': datetime.now(),
+        'last_interaction_time': datetime.now(),
+        'session_duration': 0,
+        'interaction_count': 0
     }
     
+    # Initialize or update session state variables
     for var, default in session_vars.items():
         if var not in st.session_state:
             st.session_state[var] = default
 
-            
+    # Only determine child mood if we have complete context
+    if all(st.session_state.get(k) for k in ['child_persona', 'situation', 'child_age']):
+        try:
+            # Determine mood dynamically based on current context
+            mood = determine_child_mood(
+                st.session_state['child_persona'],
+                st.session_state['situation'],
+                st.session_state['child_age']
+            )
+            st.session_state['child_mood'] = mood
+        except Exception as e:
+            print(f"Error determining mood: {e}")
+            if 'child_mood' not in st.session_state:
+                st.session_state['child_mood'] = 'neutral'
 
 @st.cache_data(ttl=3600)
 def cached_openai_call(messages, model="gpt-4", temperature=0.7, max_tokens=150):
@@ -569,80 +1060,6 @@ def track_feature_visit(feature_name: str):
     normalized_name = feature_display_map.get(feature_name, feature_name)
     st.session_state.visited_features.add(normalized_name)
     st.session_state.visited_features.add(normalized_name.lower().replace(" ", "_"))
-
-def generate_child_response(conversation_history, child_age, situation, mood, strategy, parent_response):
-    """Generate a child's response based on the current context with improved personalization"""
-    child_name = st.session_state.get('child_name', 'the child')
-    response_key = f"{parent_response}_{child_age}_{mood}_{strategy}"
-    
-    if response_key in st.session_state['stored_responses']:
-        return st.session_state['stored_responses'][response_key]
-    
-    # Format recent chat history
-    recent_chat = ' | '.join([
-        f"{msg['role']}: {msg['content']}" 
-        for msg in conversation_history[-2:]
-    ])
-    
-    messages = [
-        {"role": "system", "content": f"""You are simulating {child_name}'s responses in a parent-child conversation.
-        Core Parameters:
-        - Child Name: {child_name}
-        - Age Range: {child_age}
-        - Current Mood: {mood}
-        - Situation Context: {situation}
-        - Recent Chat History: {recent_chat}
-        
-        Emotional State Guidelines:
-        1. Cooperative Mood:
-          - Demonstrates willingness to understand
-          - Expresses interest in learning why, not just what
-          - Shows engagement through relevant questions
-          - Maintains age-appropriate responses
-
-        2. Defiant Mood:
-           - Display resistance through words and actions
-           - Include age-appropriate emotional outbursts
-           - Make comparisons to siblings/friends ("But Sarah gets to!")
-           - Express feelings of unfairness
-        
-        3. Distracted Mood:
-           - Show divided attention ("But wait, can I just...")
-           - Reference current activities or interests
-           - Demonstrate difficulty focusing on parent's words
-        
-        Response Format Rules:
-        1. Keep responses concise (1-2 sentences maximum)
-        2. Respond to the situation context specifically
-        3. Use vocabulary appropriate for {child_age}
-        4. Maintain character consistency
-        5. React to the parent's specific words or approach
-        6. Never explain rationally or break character
-        
-        Remember:
-        - Stay firmly in character as {child_name}
-        - Reflect the {mood} mood throughout the response
-        - Incorporate details from the specific situation
-        - Keep responses authentic to the age range
-        - Never provide meta-commentary or explanations
-        - Respond directly to parent's last message: "{parent_response}" """},
-        {"role": "user", "content": f"Generate {child_name}'s next response:"}
-    ]
-
-    try:
-        completion = openai.chat.completions.create(
-            model="gpt-4",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=60
-        )
-        response = completion.choices[0].message.content.strip()
-        
-        st.session_state['stored_responses'][response_key] = response
-        return response
-    except Exception as e:
-        print(f"Error generating child response: {e}")
-        return "I don't know what to say..."
 
 def provide_realtime_feedback(parent_response: str, strategy: str, situation: str, child_age: str, conversation_history: list) -> dict:
     """
@@ -702,7 +1119,7 @@ def provide_realtime_feedback(parent_response: str, strategy: str, situation: st
             "hint": f"Consider acknowledging {child_name}'s feelings while maintaining bedtime routine",
             "detailed": f"When using {strategy}, try to balance understanding with consistent boundaries."
         }
-    
+
 def generate_conversation_starters(situation: str) -> str:
     """Generate conversation starters based on the situation"""
     prompt = f"""
@@ -730,39 +1147,125 @@ def generate_conversation_starters(situation: str) -> str:
         print(f"Error generating conversation starters: {e}")
         return "Unable to generate conversation starters at this time."
 
+def generate_child_response(conversation_history, child_age, situation, mood, strategy, parent_response):
+    """Enhanced child response generation with persona handling"""
+    child_name = st.session_state.get('child_name', 'the child')
+    response_key = f"{parent_response}_{child_age}_{mood}_{strategy}"
+    
+    if response_key in st.session_state['stored_responses']:
+        return st.session_state['stored_responses'][response_key]
+    
+    recent_chat = ' | '.join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])
+    
+    # Persona info
+    persona = st.session_state.get('child_persona', {})
+    behavior_profile = f"""
+    Communication:
+    - Typical phrases: {persona.get('typical_phrases', '')}
+    - Response to 'no': {persona.get('response_to_no', '')}
+    - Communication patterns: {', '.join(persona.get('communication_preferences', []))}
+    - Expression level: {persona.get('emotion_style', 'Balanced')}
+    - Response length: {persona.get('response_length', 'Medium')}
+    """
+
+    trigger_detected = next((trigger for trigger in persona.get('communication_preferences', []) 
+                           if trigger.lower() in parent_response.lower()), None)
+
+    messages = [
+        {"role": "system", "content": f"""You are simulating {child_name}'s responses.
+        Core Info:
+        - Name: {child_name}
+        - Age: {child_age}
+        - Mood: {mood}
+        - Situation: {situation}
+        - Chat History: {recent_chat}
+        
+        {behavior_profile}
+        
+        {f'IMPORTANT - Triggered pattern detected: {trigger_detected}' if trigger_detected else ''}
+        
+        Response Guidelines:
+        1. Use specified communication style and phrases
+        2. Match emotional expression level
+        3. Maintain age-appropriate responses
+        4. Stay in character
+        5. Keep responses concise (1-2 sentences)
+        6. If triggered, show relevant emotional/behavioral pattern
+        
+        Parent's message: "{parent_response}" """},
+        {"role": "user", "content": f"Generate {child_name}'s response:"}
+    ]
+
+    try:
+        completion = openai.chat.completions.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=60,
+            presence_penalty=0.6
+        )
+        response = completion.choices[0].message.content.strip()
+        st.session_state['stored_responses'][response_key] = response
+        return response
+    except Exception as e:
+        print(f"Error generating response: {e}")
+        return f"{child_name} doesn't respond."
+
+def determine_child_mood(persona: dict, situation: str, child_age: str) -> str:
+    """Determines mood based on persona, situation and age"""
+    persona_weights = analyze_child_persona(persona)
+    situation_weights = analyze_situation_context(situation, child_age)
+    
+    final_weights = {
+        mood: (p_weight * 0.6) + (s_weight * 0.4)
+        for mood, (p_weight, s_weight) in 
+        zip(persona_weights.keys(), zip(persona_weights.values(), situation_weights.values()))
+    }
+    
+    total = sum(final_weights.values())
+    probabilities = {m: w/total for m, w in final_weights.items()}
+    
+    return random.choices(
+        list(probabilities.keys()),
+        weights=list(probabilities.values()),
+        k=1
+    )[0]
+
 def display_advice(parent_name: str, child_age: str, situation: str):
-    """Display parenting advice in a visually engaging card layout"""
+    """Display parenting advice with save functionality, using a softer color palette and black text."""
     st.markdown("<h2 class='section-header'>Parenting Advice</h2>", unsafe_allow_html=True)
     
-    # Add debug information
-    print(f"Displaying advice with: parent={parent_name}, age={child_age}, situation={situation}")
-    
-    if not all([parent_name, child_age, situation]):
-        st.error("Missing required information. Please ensure all fields are properly filled.")
-        print(f"Missing fields: parent_name={not bool(parent_name)}, child_age={not bool(child_age)}, situation={not bool(situation)}")
+    if not situation:
+        st.warning("Please describe the situation to get advice.")
         return
 
     try:
         with st.spinner('Generating advice...'):
             messages = [
-                {"role": "system", "content": f"""
-                    You are a parenting expert. Generate 4 specific, practical pieces of advice for the given situation.
-                    Each piece of advice should be:
-                    - Detailed enough to be actionable (25-30 words)
-                    - Specific to the situation and child's age
-                    - Based on evidence-backed parenting strategies
-                    - Include both what to do and why it works
-                    
-                    Format each piece of advice as a JSON object with these fields:
-                    - title: A short 2-3 word summary
-                    - advice: The detailed advice
-                    - icon: A relevant emoji
-                    - color: The background color code (use exactly these colors in order):
-                      ["#2F6DA3", "#2A7A5E", "#A35E2F", "#6C596E"]
-                    
-                    Return exactly 4 items.
-                """},
-                {"role": "user", "content": f"Child age: {child_age}\nSituation: {situation}\nGenerate specific advice for handling this situation."}
+                {
+                    "role": "system",
+                    "content": f"""
+                        You are a parenting expert. Generate 4 specific, practical pieces of advice for the given situation.
+                        Each piece of advice should be:
+                        - Detailed enough to be actionable (25-30 words)
+                        - Specific to the situation and child's age
+                        - Based on evidence-backed parenting strategies
+                        - Include both what to do and why it works
+
+                        Format each piece of advice as a JSON array of 4 objects with these fields:
+                        - title: A short 2-3 word summary
+                        - advice: The detailed advice
+                        - icon: A relevant emoji
+                        - color: The background color code (use exactly these colors in order):
+                          ["#D9E9FF", "#C2FAD8", "#FFECC2", "#E8D9FF"]
+
+                        Return exactly 4 items.
+                    """
+                },
+                {
+                    "role": "user",
+                    "content": f"Child age: {child_age}\nSituation: {situation}\nGenerate specific advice for handling this situation."
+                }
             ]
 
             completion = openai.chat.completions.create(
@@ -773,7 +1276,7 @@ def display_advice(parent_name: str, child_age: str, situation: str):
             
             advice_list = json.loads(completion.choices[0].message.content)
             
-            # Add custom CSS for softer shadows and better contrast
+            # --- Updated CSS to remove forced white text and rely on the inline style we add below. ---
             st.markdown("""
                 <style>
                     .advice-card {
@@ -782,58 +1285,74 @@ def display_advice(parent_name: str, child_age: str, situation: str):
                         margin: 12px 0;
                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
                         transition: transform 0.2s ease-in-out;
+                        position: relative;
                     }
-                    
                     .advice-card:hover {
                         transform: translateY(-2px);
                         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
                     }
-                    
                     .advice-title {
                         font-size: 18px;
                         font-weight: 600;
                         margin-bottom: 12px;
-                        color: white;
-                        opacity: 0.95;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
                     }
-                    
                     .advice-content {
                         font-size: 16px;
                         line-height: 1.6;
-                        color: white;
-                        opacity: 0.9;
-                    }
-                    
-                    .advice-icon {
-                        font-size: 24px;
-                        margin-right: 12px;
-                        vertical-align: middle;
                     }
                 </style>
             """, unsafe_allow_html=True)
             
-            # Create two rows with two columns each
+            # Build 2-column layout for the 4 pieces of advice
             for i in range(0, len(advice_list), 2):
                 cols = st.columns(2)
                 for j in range(2):
                     if i + j < len(advice_list):
                         advice = advice_list[i + j]
+                        
                         with cols[j]:
+                            # Force text color to black in style
                             st.markdown(f"""
-                                <div class="advice-card" style="background-color: {advice['color']};">
-                                    <div class="advice-title">
+                                <div class="advice-card" 
+                                     style="background-color: {advice['color']}; color: #000;">
+                                    <div class="advice-title" style="color: #000;">
                                         <span class="advice-icon">{advice['icon']}</span>
                                         {advice['title']}
                                     </div>
-                                    <div class="advice-content">
+                                    <div class="advice-content" style="color: #000;">
                                         {advice['advice']}
                                     </div>
                                 </div>
                             """, unsafe_allow_html=True)
 
+                            save_key = f"save_advice_{i+j}"
+                            if st.button("💾 Save Advice", key=save_key):
+                                if not parent_name:
+                                    st.warning("Please log in to save advice")
+                                else:
+                                    success, error = supabase_manager.save_item_to_supabase(
+                                        parent_id=parent_name,
+                                        item_type="advice",
+                                        title=f"{advice['icon']} {advice['title']}",
+                                        content=advice['advice'],
+                                        metadata={
+                                            "icon": advice['icon'],
+                                            "color": advice['color']
+                                        }
+                                    )
+                                    if success:
+                                        st.success("Advice saved!")
+                                    else:
+                                        st.error(f"Failed to save advice: {error}")
+
     except Exception as e:
         print(f"Error: {e}")
+        traceback.print_exc()
         st.error("Unable to generate advice at this time. Please try again.")
+
 
 def display_progress_sidebar(feature_order):
     """Display progress of features visited in sidebar"""
@@ -847,6 +1366,7 @@ def display_progress_sidebar(feature_order):
                 st.sidebar.markdown(f"◽ {feature}")
 
 def display_conversation_starters(situation):
+    """Display conversation starters with save functionality, forcing black text for readability."""
     st.markdown("<h2 class='section-header'>Conversation Starters</h2>", unsafe_allow_html=True)
     
     if not situation:
@@ -855,33 +1375,25 @@ def display_conversation_starters(situation):
 
     try:
         messages = [
-            {"role": "system", "content": f"""
-                Based on these citations:
-                {CONVERSATION_STARTER_CITATIONS}
-                {WEBSITE_CITATIONS}
-                
-                Generate 5 complete, clear conversation starters for a parent talking to their child about {situation}
-                Each starter should be a full question or statement.
-                Focus on open-ended, empathetic approaches that encourage dialogue.
-                
-                Format each starter as a JSON object with:
-                1. The conversation starter text
-                2. A category from: "Feelings", "Understanding", "Activities", "Solutions", "Ideas"
-                3. A number (1-5)
-                
-                Return as a JSON array of objects with properties:
-                - text: the complete conversation starter
-                - category: category name
-                - number: starter number (1-5)
-                
-                Ensure each starter:
-                - Is open-ended and encourages dialogue
-                - Shows empathy and understanding
-                - Is age-appropriate
-                - Addresses the specific situation
-                - Uses clear, simple language
-            """},
-            {"role": "user", "content": f"Generate conversation starters for this situation: {situation}"}
+            {
+                "role": "system",
+                "content": f"""
+                    Generate 5 complete, clear conversation starters for a parent talking to their child about {situation}.
+                    Each starter should be a full question or statement.
+                    Focus on open-ended, empathetic approaches that encourage dialogue.
+
+                    Format each starter as a JSON array of objects with properties:
+                    - text: the complete conversation starter
+                    - category: a category from: "Feelings", "Understanding", "Activities", "Solutions", "Ideas"
+                    - number: starter number (1-5)
+                    - icon: an emoji that matches the category (💭 for Feelings, 🤝 for Understanding, 🎮 for Activities, ⭐ for Solutions, 💡 for Ideas)
+                    - color: background color (from ["#EBF4FF", "#FEF3F2", "#F0FDF4", "#FDF2F8", "#FDF6B2"])
+                """
+            },
+            {
+                "role": "user",
+                "content": f"Generate conversation starters for this situation: {situation}"
+            }
         ]
         
         with st.spinner("Generating conversation starters..."):
@@ -891,160 +1403,105 @@ def display_conversation_starters(situation):
                 temperature=0.7
             )
             
+            # Parse the JSON array returned
             starters = json.loads(completion.choices[0].message.content)
             
-            # Add custom CSS
+            # CSS for the starter card layout
             st.markdown("""
                 <style>
                     .starter-card {
-                        background-color: white;
                         border-radius: 12px;
                         padding: 24px;
                         margin-bottom: 20px;
                         border: 1px solid #e2e8f0;
                         transition: transform 0.2s, box-shadow 0.2s;
+                        position: relative;
                     }
-                    
                     .starter-card:hover {
                         transform: translateY(-2px);
-                        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                     }
-                    
                     .category-badge {
-                        display: inline-block;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
                         padding: 6px 12px;
                         border-radius: 20px;
+                        font-size: 0.875rem;
+                        font-weight: 500;
+                        margin-bottom: 12px;
+                        background-color: rgba(255, 255, 255, 0.9);
+                        color: #000; /* ensure black text on badge */
+                    }
+                    .starter-text {
+                        font-size: 1.1rem;
+                        line-height: 1.6;
+                        font-weight: 500;
+                        margin-top: 12px;
+                    }
+                    .starter-number {
+                        position: absolute;
+                        top: -8px;
+                        left: -8px;
+                        background-color: #4F46E5;
+                        color: white;
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
                         font-size: 12px;
                         font-weight: 600;
-                        margin-bottom: 12px;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    
-                    .number-badge {
-                        position: absolute;
-                        top: -10px;
-                        left: -10px;
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 50%;
-                        background-color: #4F46E5;
-                        color: white;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-weight: 600;
-                        font-size: 14px;
                         border: 2px solid white;
-                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                    }
-                    
-                    .starter-text {
-                        font-size: 16px;
-                        line-height: 1.6;
-                        color: #2d3748;
-                    }
-                    
-                    .tips-section {
-                        background-color: #f7fafc;
-                        border-radius: 12px;
-                        padding: 24px;
-                        margin-top: 40px;
-                        border: 1px solid #e2e8f0;
-                    }
-                    
-                    .tips-header {
-                        display: flex;
-                        align-items: center;
-                        margin-bottom: 16px;
-                    }
-                    
-                    .tips-icon {
-                        width: 32px;
-                        height: 32px;
-                        margin-right: 12px;
-                        background-color: #4F46E5;
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: white;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                     }
                 </style>
             """, unsafe_allow_html=True)
             
-            # Color mapping for categories
-            color_map = {
-                "Feelings": "#EBF4FF:#4299E1",      # Blue
-                "Understanding": "#FEF3F2:#F98080",  # Red
-                "Activities": "#F0FDF4:#34D399",     # Green
-                "Solutions": "#FDF2F8:#EC4899",      # Pink
-                "Ideas": "#FDF6B2:#D97706"          # Yellow
-            }
-            
-            # Display introduction
-            st.markdown("""
-                <div style="margin-bottom: 24px;">
-                    <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
-                        Use these thoughtfully crafted conversation starters to open up meaningful dialogue with your child. 
-                        Each starter is designed to encourage open communication and understanding.
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Display starters in a single column for better readability
+            # Display each starter
             for starter in starters:
-                bg_color, text_color = color_map.get(starter['category'], "#F9FAFB:#4A5568").split(":")
-                
+                # Make the entire card text black for readability
                 st.markdown(f"""
-                    <div class="starter-card" style="position: relative;">
-                        <div class="number-badge">{starter['number']}</div>
-                        <div style="display: flex; align-items: flex-start;">
-                            <div style="flex: 1;">
-                                <div class="category-badge" style="background-color: {bg_color}; color: {text_color};">
-                                    {starter['category']}
-                                </div>
-                                <div class="starter-text">
-                                    "{starter['text']}"
-                                </div>
-                            </div>
+                    <div class="starter-card" style="background-color: {starter['color']}; color: #000;">
+                        <div class="starter-number">{starter['number']}</div>
+                        <div class="category-badge">
+                            {starter.get('icon', '💭')} {starter['category']}
+                        </div>
+                        <div class="starter-text">
+                            "{starter['text']}"
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
-            
-            # Display tips section
-            st.markdown("""
-                <div class="tips-section">
-                    <div class="tips-header">
-                        <div class="tips-icon">💡</div>
-                        <h3 style="color: #2d3748; font-size: 20px; font-weight: 600; margin: 0;">
-                            Tips for Using These Starters
-                        </h3>
-                    </div>
-                    <ul style="color: #4a5568; list-style-type: none; padding: 0; margin: 0;">
-                        <li style="margin-bottom: 12px; display: flex; align-items: center;">
-                            <span style="width: 8px; height: 8px; background-color: #4F46E5; border-radius: 50%; margin-right: 12px;"></span>
-                            Choose a calm moment when both you and your child are ready to talk
-                        </li>
-                        <li style="margin-bottom: 12px; display: flex; align-items: center;">
-                            <span style="width: 8px; height: 8px; background-color: #4F46E5; border-radius: 50%; margin-right: 12px;"></span>
-                            Use a gentle, curious tone that shows you're interested in their perspective
-                        </li>
-                        <li style="margin-bottom: 12px; display: flex; align-items: center;">
-                            <span style="width: 8px; height: 8px; background-color: #4F46E5; border-radius: 50%; margin-right: 12px;"></span>
-                            Give your child time to process and respond without rushing
-                        </li>
-                        <li style="display: flex; align-items: center;">
-                            <span style="width: 8px; height: 8px; background-color: #4F46E5; border-radius: 50%; margin-right: 12px;"></span>
-                            Listen actively and validate their feelings to create an environment where they feel comfortable expressing themselves
-                        </li>
-                    </ul>
-                </div>
-            """, unsafe_allow_html=True)
+                
+                # Save button for this starter
+                save_key = f"save_starter_{starter['number']}"
+                if st.button("💾 Save Starter", key=save_key):
+                    if not st.session_state.get('parent_name'):
+                        st.warning("Please log in to save conversation starters")
+                    else:
+                        success, error = supabase_manager.save_item_to_supabase(
+                            parent_id=st.session_state['parent_name'],
+                            item_type="starter",
+                            title=f"{starter['icon']} {starter['category']}",
+                            content=starter['text'],
+                            metadata={
+                                "category": starter['category'],
+                                "icon": starter['icon'],
+                                "number": starter['number'],
+                                "background_color": starter['color']
+                            }
+                        )
+                        if success:
+                            st.success("Conversation starter saved!")
+                        else:
+                            st.error(f"Failed to save: {error}")
             
     except Exception as e:
         print(f"Error generating conversation starters: {e}")
+        traceback.print_exc()
         st.error("Unable to generate conversation starters at this time.")
+
 
 def display_communication_techniques(situation):
     st.markdown("<h2 class='section-header'>Communication Techniques</h2>", unsafe_allow_html=True)
@@ -1064,20 +1521,12 @@ def display_communication_techniques(situation):
                     3. Three specific action steps
                     4. A brief, realistic example
                     
-                    Format as markdown with this exact structure:
-                    ### [emoji] Strategy Name
-                    
-                    Purpose: [one clear sentence]
-                    
-                    A. [first step]
-                    B. [second step]
-                    C. [third step]
-                    
-                    Example: [brief specific example under 25 words]
-                    
-                    Make each strategy practical and specific to the situation.
-                    Base advice on child development research and effective communication principles.
-                    {COMMUNICATION_STRATEGIES_CITATIONS}
+                    Format as JSON array with objects containing:
+                    - title: Strategy name with emoji
+                    - purpose: Single clear sentence
+                    - steps: Array of 3 action steps
+                    - example: Brief specific example
+                    - color: Background color (use: ["#7C3AED", "#0D9488", "#D97706"])
                 """},
                 {"role": "user", "content": f"Generate parenting communication strategies for this situation: {situation}"}
             ]
@@ -1088,9 +1537,8 @@ def display_communication_techniques(situation):
                 temperature=0.7
             )
 
-            strategies = completion.choices[0].message.content.split('###')[1:]  # Split by ### and remove empty first element
+            strategies = json.loads(completion.choices[0].message.content)
             
-            # Add custom CSS
             st.markdown("""
                 <style>
                     .strategy-card {
@@ -1099,383 +1547,287 @@ def display_communication_techniques(situation):
                         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
                         margin-bottom: 20px;
                         overflow: hidden;
+                        position: relative;
                     }
                     
-                    .card-header {
-                        padding: 16px;
-                        font-size: 1.2em;
-                        font-weight: 600;
-                        color: white;
-                    }
-                    
-                    .card-content {
-                        padding: 20px;
-                    }
-                    
-                    .purpose {
-                        background-color: #f8fafc;
-                        padding: 12px;
-                        border-radius: 8px;
-                        margin-bottom: 16px;
-                    }
-                    
-                    .step {
-                        padding: 12px;
-                        margin-bottom: 8px;
-                        border: 1px solid #e5e7eb;
-                        border-radius: 6px;
-                    }
-                    
-                    .example {
-                        background-color: #f8fafc;
-                        padding: 16px;
-                        border-radius: 8px;
-                        font-style: italic;
-                        margin-top: 16px;
+                    .save-technique-btn {
+                        position: absolute;
+                        top: 10px;
+                        right: 10px;
+                        z-index: 10;
                     }
                 </style>
             """, unsafe_allow_html=True)
             
-            # Create three columns
             cols = st.columns(3)
-            colors = ["#7C3AED", "#0D9488", "#D97706"]  # violet-600, teal-600, amber-600
             
-            for idx, (strategy, col, color) in enumerate(zip(strategies, cols, colors)):
+            for idx, (strategy, col) in enumerate(zip(strategies, cols)):
                 with col:
-                    # Parse strategy content
-                    lines = strategy.strip().split('\n')
-                    title = lines[0].strip()
-                    purpose = next(line for line in lines if line.startswith('Purpose:')).replace('Purpose:', '').strip()
-                    steps = [line.strip() for line in lines if line.strip().startswith(('A.', 'B.', 'C.'))]
-                    example = next(line for line in lines if line.startswith('Example:')).replace('Example:', '').strip()
+                    # Create unique key for save button
+                    save_key = f"save_technique_{idx}"
                     
-                    st.markdown(f"""
+                    card = f"""
                         <div class="strategy-card">
-                            <div class="card-header" style="background-color: {color}">
-                                {title}
+                            <div class="card-header" style="background-color: {strategy['color']}; color: white; padding: 16px;">
+                                {strategy['title']}
                             </div>
-                            <div class="card-content">
-                                <div class="purpose">
-                                    {purpose}
+                            <div style="padding: 20px;">
+                                <div style="background-color: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                                    {strategy['purpose']}
                                 </div>
                                 <div class="steps">
-                                    <div class="step">
-                                        {steps[0]}
-                                    </div>
-                                    <div class="step">
-                                        {steps[1]}
-                                    </div>
-                                    <div class="step">
-                                        {steps[2]} 
-                                    </div>
+                                    {"".join([f'<div style="padding: 12px; margin-bottom: 8px; border: 1px solid #e5e7eb; border-radius: 6px;">{step}</div>' for step in strategy['steps']])}
                                 </div>
-                                <div class="example">
+                                <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; font-style: italic; margin-top: 16px;">
                                     <strong>✨ Example:</strong><br>
-                                    {example}
+                                    {strategy['example']}
                                 </div>
                             </div>
                         </div>
-                    """, unsafe_allow_html=True)
+                    """
+                    
+                    st.markdown(card, unsafe_allow_html=True)
+                    
+                    # Add save button below the card
+                    if st.button("💾 Save Technique", key=save_key):
+                        if not st.session_state.get('parent_name'):
+                            st.warning("Please log in to save techniques")
+                        else:
+                            # Format content for saving - fixed formatting
+                            content = f"""Purpose: {strategy['purpose']}\n\n""" + \
+                                    f"""Steps:\n""" + \
+                                    "\n".join([f"• {step}" for step in strategy['steps']]) + \
+                                    f"""\n\nExample: {strategy['example']}"""
+                            
+                            success, error = supabase_manager.save_item_to_supabase(
+                                parent_id=st.session_state['parent_name'],
+                                item_type="technique",
+                                title=strategy['title'],
+                                content=content,
+                                metadata={
+                                    "color": strategy['color'],
+                                    "situation": situation,
+                                    "steps": strategy['steps']
+                                }
+                            )
+                            
+                            if success:
+                                st.success("Technique saved successfully!")
+                            else:
+                                st.error(f"Failed to save technique: {error}")
     
     except Exception as e:
         print(f"Detailed error: {str(e)}")
-        traceback.print_exc()  # This will print the full error traceback to your logs
+        traceback.print_exc()
         st.error("Unable to generate communication techniques. Please try again.")
 
 def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
-    st.markdown("<h2 class='section-header'>Role-Play Simulation</h2>", unsafe_allow_html=True)
-
-    # Custom CSS to style the expander
+    """Display and handle the role-play simulation interface with improved UI"""
     st.markdown("""
-    <style>
-    /* Custom styling for selectbox */
-    .stSelectbox [data-baseweb=select] {
-        background-color: white;
-        border: 2px solid #4338CA !important;  /* Thicker border with indigo color */
-        border-radius: 8px !important;
-        padding: 6px 12px;
-    }
-    
-    .stSelectbox [data-baseweb=select]:hover {
-        border-color: #6366F1 !important;  /* Lighter indigo on hover */
-        box-shadow: 0 2px 4px rgba(99, 102, 241, 0.1);
-    }
-    
-    /* Style for the dropdown arrow */
-    .stSelectbox [data-baseweb=select] svg {
-        color: #4338CA;  /* Indigo color for the dropdown arrow */
-    }
-    
-    /* Style for the selectbox label */
-    .stSelectbox > label {
-        color: #4338CA !important;
-        font-weight: 600 !important;
-        font-size: 1rem !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-    
-    # Add header above the expander
-    st.markdown("### Getting Started")
-    
-    with st.expander("Click here for instructions"):
-        st.write("The simulation will provide real-time feedback on your responses and generate age-appropriate replies based on your chosen communication strategy.")
-        
-        instructions = [
-            {
-                "step": "1",
-                "title": "Select your communication strategy below",
-                "desc": "Choose from Active Listening, Positive Reinforcement, or Reflective Questioning"
-            },
-            {
-                "step": "2",
-                "title": "Type your responses in the text area",
-                "desc": "Consider your chosen strategy when formulating your response"
-            },
-            {
-                "step": "3",
-                "title": "Click 'Send Response' to continue the conversation",
-                "desc": "You'll receive feedback and see how your child responds"
-            },
-            {
-                "step": "4",
-                "title": "Click 'End Conversation' when you're ready to finish",
-                "desc": "You'll see a review of your conversation with detailed feedback"
-            }
-        ]
-        
-        for instruction in instructions:
-            st.markdown(f"""
-                <div style='display: flex; gap: 1rem; margin-bottom: 1rem;'>
-                    <div style='background-color: #e8eeff; color: #3b82f6; width: 28px; height: 28px; 
-                         border-radius: 50%; display: flex; align-items: center; justify-content: center; 
-                         font-weight: 600; flex-shrink: 0;'>
-                        {instruction['step']}
-                    </div>
-                    <div>
-                        <div style='font-weight: 500; color: #1f2937;'>{instruction['title']}</div>
-                        <div style='color: #6b7280; font-size: 0.875rem;'>{instruction['desc']}</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("### Communication Strategy")
-    
-    with st.expander("Select your communication strategy and learn more about each approach"):
-        strategy_descriptions = {
-            "Active Listening": """
-                👂 **Active Listening**
-                
-                Fully focus on, understand, and remember what your child is saying. This helps them feel heard and valued.
-                
-                Key aspects:
-                - Give full attention when your child speaks
-                - Show you're listening through body language
-                - Reflect back what you hear to confirm understanding
-                - Avoid interrupting or jumping to conclusions
-            """,
-            "Positive Reinforcement": """
-                ⭐ **Positive Reinforcement**
-                
-                Encourage desired behaviors through specific praise or rewards, helping build self-esteem and motivation.
-                
-                Key aspects:
-                - Praise specific actions rather than general behavior
-                - Focus on effort and improvement
-                - Use encouraging words and genuine appreciation
-                - Recognize progress, not just perfect results
-            """,
-            "Reflective Questioning": """
-                ❓ **Reflective Questioning**
-                
-                Use open-ended questions to help children think deeper and express themselves.
-                
-                Key aspects:
-                - Ask questions that can't be answered with yes/no
-                - Help children explore their feelings and thoughts
-                - Show genuine curiosity about their perspective
-                - Give time to think and respond
-            """
+        <style>
+        .stTextArea textarea {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            padding: 0.75rem;
         }
         
+        .stTextArea textarea:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+        }
+        
+        .chat-message {
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+            max-width: 80%;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        
+        .parent-message {
+            background-color: #f8fafc;
+            margin-left: auto;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .child-message {
+            background-color: #fff;
+            margin-right: auto;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .feedback-cloud {
+            background-color: #f1f5f9;
+            border-radius: 8px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: #4b5563;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Instructions
+    st.markdown("### Getting Started")
+    with st.expander("Click for instructions"):
+        st.markdown("""
+            1. **Customize Your Child's Communication Style**: Describe your child's typical communication for personalized role play.
+            2. **Choose Strategy**: Select which communication approach you want to practice.
+            3. **Start Conversation**: Begin the role-play and receive real-time feedback.
+        
+            
+            Remember: This is a safe space to practice different approaches and learn from the interaction.
+        """)
+
+    # Child's Response Style Section
+    st.markdown("### Child's Response Style")
+    display_persona_customization()
+
+    # Communication Strategy Section
+    st.markdown("### Communication Strategy")
+    with st.expander("Select your communication strategy"):
         strategy = st.selectbox(
             "Choose your approach:",
             ["Active Listening", "Positive Reinforcement", "Reflective Questioning"],
             key=f"strategy_select_{st.session_state['simulation_id']}"
         )
         
-        st.markdown(strategy_descriptions[strategy])
+        if strategy in STRATEGY_EXPLANATIONS:
+            st.markdown(STRATEGY_EXPLANATIONS[strategy], unsafe_allow_html=True)
     
     st.session_state['strategy'] = strategy
 
-    # Single Conversation section
+    # Conversation Section
     st.markdown("### Conversation")
     st.info(f"Current Situation: {situation}")
-    
-    # Chat history display
-    if st.session_state['conversation_history']:
-        for msg in st.session_state['conversation_history']:
-            speaker = "You" if msg['role'] == 'parent' else st.session_state.get('child_name', 'Child')
-            message_class = 'message-parent' if msg['role'] == 'parent' else 'message-child'
-            
-            cols = st.columns([8, 4])
-            with cols[0]:
+
+    if 'conversation_history' not in st.session_state:
+        st.session_state['conversation_history'] = []
+        
+    for msg in st.session_state['conversation_history']:
+        speaker = "You" if msg['role'] == 'parent' else st.session_state.get('child_name', 'Child')
+        message_class = 'parent-message' if msg['role'] == 'parent' else 'child-message'
+        
+        cols = st.columns([3, 1])
+        with cols[0]:
+            st.markdown(f"""
+                <div class='chat-message {message_class}'>
+                    <strong>{speaker}:</strong> {msg['content']}
+                </div>
+            """, unsafe_allow_html=True)
+        
+        if msg.get('feedback') and msg['role'] == 'parent':
+            with cols[1]:
                 st.markdown(f"""
-                    <div class='{message_class}'>
-                        <strong>{speaker}:</strong> {msg['content']}
+                    <div class='feedback-cloud'>
+                        💡 {msg['feedback']['hint']}
                     </div>
                 """, unsafe_allow_html=True)
-            
-            if msg['role'] == 'parent' and 'feedback' in msg:
-                with cols[1]:
-                    st.info(f"💡 {msg['feedback']['hint']}")
 
-    # Input area
     user_input = st.text_area(
-        label="Your response",
-        placeholder="How would you start this conversation with your child? Type here...",
-        key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
+        "Your response",
+        placeholder="Type your response here...",
+        key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state.get('turn_count', 0)}",
         height=100
     )
-    
-    # Action buttons
-    send_cols = st.columns(2)
-    with send_cols[0]:
-        send_button = st.button("Send Response", use_container_width=True)
-    with send_cols[1]:
-        end_button = st.button("End Conversation", use_container_width=True, type="secondary")
-    
-    # Handle input
+
+    col1, col2 = st.columns(2)
+    with col1:
+        send_button = st.button("Send Response", type="primary", use_container_width=True)
+    with col2:
+        end_button = st.button("End Conversation", type="secondary", use_container_width=True)
+
     if send_button or end_button:
         handle_conversation_input(send_button, end_button, user_input, child_age, situation)
 
-def handle_user_input(child_age: str, situation: str):
-    """Handle user input during conversation"""
-    user_input = st.text_area(
-        label="Your response",
-        placeholder="How would you respond to your child? Type here...",
-        key=f"parent_input_{st.session_state['simulation_id']}_{st.session_state['turn_count']}",
-        height=100
-    )
-    
-    submit_cols = st.columns(2)
-    with submit_cols[0]:
-        send_button = st.button("Send Response", key="send_response", use_container_width=True)
-    with submit_cols[1]:
-        end_button = st.button("End Conversation", key="end_conversation", use_container_width=True, type="secondary")
-    
-    handle_conversation_input(send_button, end_button, user_input, child_age, situation)
+    if st.session_state.get('simulation_ended', False):
+        st.success("""
+            Simulation completed! You can:
+            - Review the conversation above
+            - Start a new simulation with different strategies
+            - Try different communication approaches
+        """)
 
 def handle_conversation_input(send_button: bool, end_button: bool, user_input: str, child_age: str, situation: str):
-    # Debug prints
-    print(f"Send button: {send_button}")
-    print(f"User input: {user_input}")
-    
-    # Add a unique key for this conversation turn
-    turn_key = f"turn_{st.session_state.get('turn_count', 0)}"
-    
-    # Check if we're in an iframe
-    is_embedded = st.query_params.get("embed", "false").lower() == "true"
-    
-    # Prevent processing empty input
-    if send_button and not user_input:
-        return
+    if send_button and user_input:
+        feedback = provide_realtime_feedback(
+            user_input, 
+            st.session_state['strategy'],
+            st.session_state['situation'],
+            child_age,
+            st.session_state['conversation_history']
+        )
         
-    # Add a state check to prevent multiple submissions
-    if send_button and user_input and not st.session_state.get('is_processing', False):
-        st.session_state.is_processing = True
+        simulation_data = {
+            "user_id": st.session_state['parent_name'],
+            "simulation_data": {
+                "parent_message": user_input,
+                "strategy": st.session_state['strategy'],
+                "child_age": child_age,
+                "situation": situation,
+                "turn_count": st.session_state['turn_count']
+            },
+            "created_at": datetime.utcnow().isoformat()
+        }
         
-        try:
-            # Generate feedback
-            feedback = provide_realtime_feedback(
-                user_input, 
-                st.session_state.get('strategy', 'Active Listening'),
-                situation,
-                child_age,
-                st.session_state.get('conversation_history', [])
-            )
+        success, result = supabase_manager.save_simulation_data(simulation_data)
+        if not success:
+            st.error(f"Failed to save simulation data: {result}")
+            return
             
-            # Create a new conversation entry
-            new_parent_message = {
-                "role": "parent",
-                "content": user_input,
-                "id": len(st.session_state.get('conversation_history', [])),
-                "feedback": feedback,
-                "strategy_used": st.session_state.get('strategy', 'Active Listening'),
-                "timestamp": datetime.utcnow().isoformat(),
-                "turn_key": turn_key
-            }
-            
-            # Initialize conversation history if it doesn't exist
-            if 'conversation_history' not in st.session_state:
-                st.session_state.conversation_history = []
-            
-            # Add parent's message
-            st.session_state.conversation_history.append(new_parent_message)
-            
-            # Save to Supabase
-            try:
-                simulation_data = {
-                    "user_id": st.session_state.get('parent_name', 'unknown'),
-                    "simulation_data": {
-                        "parent_message": user_input,
-                        "strategy": st.session_state.get('strategy', 'Active Listening'),
-                        "child_age": child_age,
-                        "situation": situation,
-                        "turn_count": st.session_state.get('turn_count', 0),
-                        "feedback": feedback
-                    },
-                    "created_at": datetime.utcnow().isoformat()
+        if isinstance(result, str):
+            st.session_state['current_simulation_id'] = result
+        
+        st.session_state['conversation_history'].append({
+            "role": "parent",
+            "content": user_input,
+            "id": len(st.session_state['conversation_history']),
+            "feedback": feedback,
+            "strategy_used": st.session_state['strategy']
+        })
+
+        update_langsmith_run(
+            st.session_state['run_id'],
+            {
+                f"turn_{st.session_state['turn_count']}_parent": {
+                    "content": user_input,
+                    "strategy": st.session_state['strategy'],
+                    "feedback": feedback
                 }
-                
-                success, result = supabase_manager.save_simulation_data(simulation_data)
-                if success and isinstance(result, str):
-                    st.session_state['current_simulation_id'] = result
-            except Exception as e:
-                print(f"Error saving to Supabase: {e}")
-            
-            # Generate child's response
-            try:
-                child_response = generate_child_response(
-                    st.session_state.conversation_history,
-                    child_age,
-                    situation,
-                    st.session_state.get('child_mood', 'neutral'),
-                    st.session_state.get('strategy', 'Active Listening'),
-                    user_input
-                )
-                
-                # Add child's response to history
-                st.session_state.conversation_history.append({
-                    "role": "child",
-                    "content": child_response,
-                    "id": len(st.session_state.conversation_history),
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "turn_key": turn_key
-                })
-            except Exception as e:
-                print(f"Error generating child response: {e}")
-                child_response = "I'm not sure what to say..."
-            
-            # Increment turn count
-            st.session_state['turn_count'] = st.session_state.get('turn_count', 0) + 1
-            
-        finally:
-            st.session_state.is_processing = False
-            # Force rerun to update UI
-            st.rerun()
+            }
+        )
+    
+        child_response = generate_child_response(
+            st.session_state['conversation_history'],
+            child_age,
+            situation,
+            st.session_state['child_mood'],
+            st.session_state['strategy'],
+            user_input
+        )
+        
+        st.session_state['conversation_history'].append({
+            "role": "child",
+            "content": child_response,
+            "id": len(st.session_state['conversation_history'])
+        })
+        
+        st.session_state['turn_count'] += 1
+        st.rerun()
     
     if end_button:
-        try:
-            end_simulation(
-                st.session_state.get('conversation_history', []), 
-                child_age, 
-                st.session_state.get('strategy', 'Active Listening')
-            )
-        except Exception as e:
-            print(f"Error ending simulation: {e}")
-            st.error("An error occurred while ending the simulation.")
-            
+        update_langsmith_run(
+            st.session_state['run_id'],
+            {
+                "conversation_ended": True,
+                "total_turns": st.session_state['turn_count']
+            }
+        )
+        end_simulation(st.session_state['conversation_history'], child_age, st.session_state['strategy'])
+
 def display_conversation_playback(conversation_history):
     st.markdown("<h2 class='section-header'>Conversation Review</h2>", unsafe_allow_html=True)
     
@@ -1516,7 +1868,6 @@ def end_simulation(conversation_history: list, child_age: str, strategy: str):
     
     display_conversation_playback(conversation_history)
     
-    # Check visited features and display completion message
     required_features = {'advice', 'communication_techniques', 'conversation_starters', 'role_play_simulation'}
     visited = {f.lower().replace(" ", "_").replace("-", "_") for f in st.session_state.get('visited_features', [])}
     
@@ -1535,22 +1886,14 @@ def end_simulation(conversation_history: list, child_age: str, strategy: str):
         </div>
         """, unsafe_allow_html=True)
 
-def reset_simulation():
-    st.session_state['conversation_history'] = []
-    st.session_state['turn_count'] = 0
-    st.session_state['child_mood'] = random.choice(['cooperative', 'defiant', 'distracted'])
-    st.session_state['simulation_id'] = str(uuid4())
-
 def show_info_screen():
     """Display the initial information collection screen with Supabase integration"""
     st.markdown("<h1 class='main-header'>Welcome to Parenting Support Bot</h1>", unsafe_allow_html=True)
     
-    # Check if we already have parent information
     if 'parent_info_id' in st.session_state:
         success, parent_info = supabase_manager.get_parent_information(st.session_state.get('prolific_id'))
         if success and parent_info:
             st.info("Welcome back! We found your previous information.")
-            # Pre-fill the form with existing data
             parent_name = parent_info.get('prolific_id', '')
             child_name = parent_info.get('child_name', '')
             child_age = parent_info.get('child_age', '')
@@ -1574,9 +1917,9 @@ def show_info_screen():
                                   placeholder="Enter your 24-character Prolific ID...",
                                   help="This is the ID assigned to you by Prolific")
         
-        child_name = st.text_input("Child's Name", 
+        child_name = st.text_input("Child's Name or Nickname", 
                                  value=child_name,
-                                 placeholder="Enter your child's name...")
+                                 placeholder="Enter your child's name or pseudonym...")
         
         child_age = st.selectbox("Child's Age Range",
                                ["3-5 years", "6-9 years", "10-12 years"],
@@ -1595,7 +1938,6 @@ def show_info_screen():
             elif len(prolific_id) != 24:
                 st.error("Please enter a valid 24-character Prolific ID")
             else:
-                # Save to Supabase
                 parent_data = {
                     'prolific_id': prolific_id,
                     'child_name': child_name,
@@ -1606,7 +1948,6 @@ def show_info_screen():
                 success, result = supabase_manager.save_parent_information(parent_data)
                 
                 if success:
-                    # Store in session state
                     st.session_state['parent_info_id'] = result
                     st.session_state['parent_name'] = prolific_id
                     st.session_state['child_name'] = child_name
@@ -1636,20 +1977,402 @@ def show_tutorial():
             st.session_state.show_tutorial = False
             st.rerun()
 
-# Initialize Supabase manager
-supabase_manager = SupabaseManager()
+def reset_simulation():
+    """Reset simulation-specific session state variables"""
+    st.session_state['conversation_history'] = []
+    st.session_state['turn_count'] = 0
+    st.session_state['simulation_id'] = str(uuid4())
+    st.session_state['simulation_ended'] = False
+    st.session_state['stored_responses'] = {}
+    
+    if all(st.session_state.get(k) for k in ['child_persona', 'situation', 'child_age']):
+        try:
+            st.session_state['child_mood'] = determine_child_mood(
+                st.session_state['child_persona'],
+                st.session_state['situation'],
+                st.session_state['child_age']
+            )
+        except Exception as e:
+            print(f"Error resetting simulation mood: {e}")
+            st.error("Unable to determine child's response style for new simulation.")
+
+def analyze_child_persona(persona: dict) -> dict:
+    """
+    Analyzes persona to determine mood tendencies based on communication patterns,
+    emotional expression, and special traits.
+    """
+    weights = {'cooperative': 1.0, 'defiant': 1.0, 'distracted': 1.0}
+    
+    if not isinstance(persona, dict):
+        raise ValueError("Invalid persona format")
+
+    communication_patterns = {
+        'cooperative': [
+            'listens well', 'understands', 'calm', 'helps', 'agrees', 'follows',
+            'shares', 'patient', 'works together', 'polite', 'kind'
+        ],
+        'defiant': [
+            'argues', 'refuses', 'angry', 'no', 'won\'t', 'never', 'protests',
+            'yells', 'fights', 'resists', 'ignores', 'oppositional'
+        ],
+        'distracted': [
+            'changes subject', 'unfocused', 'busy', 'forgets', 'wanders off',
+            'looks away', 'fidgets', 'moves around', 'daydreams'
+        ]
+    }
+
+    style_text = ' '.join([
+        str(persona.get('communication_style', '')),
+        str(persona.get('typical_phrases', '')),
+        str(persona.get('response_to_no', ''))
+    ]).lower()
+
+    for mood, patterns in communication_patterns.items():
+        matches = sum(1 for pattern in patterns if pattern in style_text)
+        weights[mood] += matches * 0.3
+
+    behavior_weights = {
+        'cooperative': [
+            'Shows physical affection',
+            'Takes time to process',
+            'Uses humor positively'
+        ],
+        'defiant': [
+            'Argues and debates frequently',
+            'Gets loud when excited',
+            'Becomes defensive easily'
+        ],
+        'distracted': [
+            'Changes subject often',
+            'Gives minimal responses',
+            'Physically expressive'
+        ]
+    }
+
+    patterns = persona.get('response_patterns', [])
+    for mood, behaviors in behavior_weights.items():
+        matches = sum(1 for behavior in behaviors if behavior in patterns)
+        weights[mood] += matches * 0.4
+
+    expression_style = persona.get('emotion_style')
+    if expression_style:
+        expression_adjustments = {
+            'Very Reserved': {'cooperative': 0.4, 'defiant': -0.2, 'distracted': 0.1},
+            'Somewhat Reserved': {'cooperative': 0.2, 'defiant': -0.1},
+            'Balanced': {},
+            'Somewhat Expressive': {'defiant': 0.2, 'distracted': 0.2},
+            'Very Expressive': {'defiant': 0.4, 'distracted': 0.3, 'cooperative': -0.2}
+        }
+        
+        if expression_style in expression_adjustments:
+            for mood, adjustment in expression_adjustments[expression_style].items():
+                weights[mood] += adjustment
+
+    special_traits = persona.get('special_traits', [])
+    trait_adjustments = {
+        'Sensitive to tone of voice': {'defiant': 0.3, 'cooperative': -0.1},
+        'Needs time to process changes': {'distracted': 0.2, 'defiant': 0.1},
+        'Gets overwhelmed easily': {'distracted': 0.3, 'defiant': 0.2},
+        'Strong opinions': {'defiant': 0.3},
+        'Literal interpretation': {'cooperative': 0.2}
+    }
+
+    for trait in special_traits:
+        if trait in trait_adjustments:
+            for mood, adjustment in trait_adjustments[trait].items():
+                weights[mood] += adjustment
+
+    return weights
+
+def analyze_situation_context(situation: str, child_age: str) -> dict:
+    situation_lower = situation.lower()
+    mood_weights = {'cooperative': 1.0, 'defiant': 1.0, 'distracted': 1.0}
+
+    situation_factors = {
+        'cooperative': {
+            'positive_activities': [
+                'play', 'game', 'park', 'fun', 'together', 'help', 'reward',
+                'special time', 'reading', 'movie', 'craft', 'drawing',
+                'outdoor', 'sports', 'swimming', 'bike'
+            ],
+            'learning_moments': [
+                'new skill', 'learning', 'practice', 'trying', 'improvement',
+                'achievement', 'success', 'understand', 'explore', 'discover'
+            ],
+            'social_situations': [
+                'friends', 'family', 'sharing', 'cooperation', 'team',
+                'playing together', 'helping others', 'birthday', 'celebration'
+            ],
+            'positive_routines': [
+                'morning routine', 'getting ready', 'preparing', 'organizing',
+                'planning', 'choosing', 'deciding'
+            ]
+        },
+        'defiant': {
+            'challenging_routines': [
+                'bedtime', 'sleep', 'nap', 'wake up', 'morning',
+                'homework', 'study', 'school work', 'assignment',
+                'chores', 'clean', 'tidy', 'organize', 'put away'
+            ],
+            'limit_setting': [
+                'stop', 'no', 'don\'t', 'cannot', 'not allowed', 'limit',
+                'restrict', 'time\'s up', 'finish', 'end', 'later',
+                'screen time', 'device', 'tablet', 'phone', 'tv'
+            ],
+            'transitions': [
+                'change activity', 'switch', 'move to', 'time to go',
+                'leave', 'get ready', 'hurry', 'quick', 'rush'
+            ],
+            'frustrating_situations': [
+                'difficult', 'challenge', 'problem', 'mistake', 'wrong',
+                'unfair', 'not working', 'broken', 'lost', 'waiting'
+            ]
+        },
+        'distracted': {
+            'competing_activities': [
+                'playing', 'watching', 'game', 'tv', 'video',
+                'friends', 'toys', 'device', 'phone', 'tablet',
+                'computer', 'screen', 'favorite show'
+            ],
+            'physical_states': [
+                'tired', 'hungry', 'sleepy', 'exhausted', 'restless',
+                'energetic', 'excited', 'hyper', 'fidgety'
+            ],
+            'environmental_factors': [
+                'noise', 'busy', 'crowd', 'new place', 'unfamiliar',
+                'interesting', 'exciting', 'loud', 'movement'
+            ],
+            'timing_factors': [
+                'late', 'rush', 'hurry', 'busy day', 'long day',
+                'after school', 'before dinner', 'evening'
+            ]
+        }
+    }
+
+    for mood, categories in situation_factors.items():
+        for category, keywords in categories.items():
+            for keyword in keywords:
+                if keyword in situation_lower:
+                    mood_weights[mood] += 0.2 if len(keyword.split()) == 1 else 0.3
+
+    age_factors = {
+        "3-5 years": {
+            'distracted': 1.3,
+            'defiant': 1.2,
+            'keywords': ['nap', 'play', 'share', 'toy', 'snack']
+        },
+        "6-9 years": {
+            'cooperative': 1.1,
+            'keywords': ['school', 'homework', 'friends', 'games', 'activities']
+        },
+        "10-12 years": {
+            'defiant': 1.1,
+            'keywords': ['independence', 'social', 'screen time', 'responsibility']
+        }
+    }
+
+    if child_age in age_factors:
+        age_info = age_factors[child_age]
+        for mood, adjustment in age_info.items():
+            if mood in mood_weights and isinstance(adjustment, (float, int)):
+                mood_weights[mood] *= adjustment
+        for keyword in age_info.get('keywords', []):
+            if keyword in situation_lower:
+                mood_weights['cooperative'] += 0.2
+
+    emotional_indicators = {
+        'cooperative': ['happy', 'excited', 'eager', 'interested', 'calm', 'relaxed'],
+        'defiant': ['angry', 'upset', 'frustrated', 'mad', 'annoyed', 'refusing'],
+        'distracted': ['overwhelmed', 'tired', 'excited', 'anxious', 'nervous']
+    }
+
+    for mood, indicators in emotional_indicators.items():
+        for indicator in indicators:
+            if indicator in situation_lower:
+                mood_weights[mood] += 0.25
+
+    return mood_weights
+
+def update_child_mood(persona: dict):
+    """Updates child's mood based on persona and situation with improved error handling"""
+    if not persona:
+        print("No persona provided for mood update")
+        return False
+        
+    try:
+        situation = st.session_state.get('situation', '')
+        child_age = st.session_state.get('child_age', '')
+        
+        if not situation or not child_age:
+            print("Missing required context for mood update")
+            return False
+        
+        new_mood = determine_child_mood(persona, situation, child_age)
+        
+        if new_mood:
+            st.session_state['child_mood'] = new_mood
+            print(f"Updated mood to: {new_mood}")
+            return True
+        else:
+            print("Mood determination returned None")
+            return False
+            
+    except Exception as e:
+        print(f"Error updating child mood: {str(e)}")
+        traceback.print_exc()
+        return False
+
+def display_saved_items():
+    """Display saved items in an organized, filterable view"""
+    st.markdown("<h2 class='section-header'>Your Saved Content</h2>", unsafe_allow_html=True)
+    
+    if not st.session_state.get('parent_name'):
+        st.warning("Please log in to view saved content")
+        return
+        
+    # Add filter options
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        filter_type = st.multiselect(
+            "Filter by type:",
+            options=["advice", "technique", "starter"],
+            default=["advice", "technique", "starter"]
+        )
+    
+    success, items = supabase_manager.get_saved_items(st.session_state['parent_name'])
+    
+    if not success:
+        st.error("Failed to retrieve saved items")
+        return
+        
+    if not items:
+        st.info("You haven't saved any content yet. Browse through the different sections and click 'Save' on items you want to keep!")
+        return
+        
+    # Filter items based on selection
+    filtered_items = [item for item in items if item['item_type'] in filter_type]
+    
+    st.markdown("""
+        <style>
+        .saved-item {
+            border-radius: 12px;
+            padding: 20px;
+            margin: 10px 0;
+            position: relative;
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        .saved-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .item-type-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            background-color: rgba(255,255,255,0.2);
+        }
+        
+        .item-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .item-content {
+            font-size: 14px;
+            line-height: 1.6;
+            margin-top: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .item-metadata {
+            font-size: 12px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            padding-top: 12px;
+            margin-top: 12px;
+        }
+
+        .item-icon {
+            font-size: 24px;
+            margin-right: 8px;
+        }
+
+        .delete-button {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            background-color: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .delete-button:hover {
+            background-color: rgba(255,255,255,0.3);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    for item in filtered_items:
+        item_type = item['item_type']
+        metadata = item.get('metadata', {})
+        
+        # Get background color from metadata or use default colors
+        type_colors = {
+            'advice': '#4338CA',    # Deep blue
+            'technique': '#047857',  # Deep green
+            'starter': '#BE185D'     # Deep pink
+        }
+        
+        bg_color = metadata.get('background_color') or type_colors.get(item_type, '#4B5563')
+        icon = metadata.get('icon', '📝')
+        
+        st.markdown(f"""
+            <div class="saved-item" style="background-color: {bg_color};">
+                <div class="item-type-badge" style="color: white;">
+                    {item_type.title()}
+                </div>
+                <div class="item-title" style="color: white;">
+                    {item['title']}
+                </div>
+                <div class="item-content" style="color: white;">
+                    {item['content']}
+                </div>
+                <div class="item-metadata" style="color: rgba(255,255,255,0.8);">
+                    Saved on: {datetime.fromisoformat(item['saved_at']).strftime('%B %d, %Y %I:%M %p')}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([6, 1])
+        with col2:
+            if st.button("Delete", key=f"delete_{item['id']}", type="secondary"):
+                success, error = supabase_manager.delete_saved_item(item['id'])
+                if success:
+                    st.toast("Item deleted!")
+                    time.sleep(0.1)  # Very short delay
+                    st.rerun()
+                else:
+                    st.error(f"Failed to delete item: {error}")
 
 def main():
-    print("Starting main()")
-
-    app = setup_cors()
-
-    # Test Supabase connection first
     def test_supabase_connection():
         """Test Supabase connection and configuration"""
         print("\n=== Testing Supabase Connection ===")
         
-        # Check environment variables
         if hasattr(st, 'secrets'):
             print("Using Streamlit secrets")
             has_url = bool(st.secrets.get('SUPABASE_URL'))
@@ -1678,192 +2401,110 @@ def main():
             traceback.print_exc()
             return False
 
-    # Run connection test before proceeding
     if not test_supabase_connection():
         st.error("Failed to connect to database. Please check configuration.")
         st.stop()
 
-    # Initialize feature order and descriptions
     feature_order = {
         "Advice": "Get expert guidance on handling specific parenting situations based on evidence-based strategies.",
         "Communication Techniques": "Discover helpful ways to communicate with your child and get tips on how to address your specific situation.",
         "Conversation Starters": "Receive help initiating difficult conversations with suggested opening phrases and questions.",
-        "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach."
+        "Role-Play Simulation": "Practice conversations in a safe environment to develop and refine your communication approach.",
     }
-
-    # Get URL parameters and handle them
-    query_params = st.query_params
-    print(f"Query params: {query_params}")
-    
-    # Check if embedded
-    is_embedded = query_params.get("embed", "false").lower() == "true"
-    print(f"Is embedded: {is_embedded}")
-    
-    # Get specific feature to show
-    feature = query_params.get("feature", None)
-    print(f"Feature from URL: {feature}")
-    
-    # Handle all URL parameters
-    if "prolific_id" in query_params:
-        st.session_state["prolific_id"] = unquote(query_params["prolific_id"])
-        st.session_state["parent_name"] = unquote(query_params["prolific_id"])
-    
-    # Also check for other parameters
-    if all(key in query_params for key in ["child_name", "child_age", "situation"]):
-        st.session_state["child_name"] = unquote(query_params["child_name"])
-        st.session_state["child_age"] = unquote(query_params["child_age"])
-        st.session_state["situation"] = unquote(query_params["situation"])
-        st.session_state["info_submitted"] = True
-        st.session_state["show_tutorial"] = False
-        print(f"Loaded parameters: {st.session_state}")
-            
-    # Adjust UI if embedded
-    if is_embedded:
-        st.markdown("""
-            <style>
-                .block-container {
-                    padding-top: 1rem;
-                    padding-bottom: 1rem;
-                    max-width: 100% !important;
-                }
-                .element-container {
-                    width: 100%;
-                }
-                .stApp {
-                    margin: 0;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-
-    # Show info screen if needed
+         
     if not st.session_state.get('info_submitted', False):
-        print("Showing info screen - info not submitted")
         show_info_screen()
         return
 
-    # Sidebar (non-embedded mode only)
     with st.sidebar:
-        if not is_embedded:
-            st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
-            st.markdown(f"""
-                <div class='info-section'>
-                    <strong>Parent:</strong> {st.session_state['parent_name']}<br>
-                    <strong>Child:</strong> {st.session_state['child_name']}<br>
-                    <strong>Age:</strong> {st.session_state['child_age']}<br>
-                    <strong>Situation:</strong> {st.session_state['situation']}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("Edit Information", use_container_width=True):
-                st.session_state['info_submitted'] = False
-                st.session_state.pop('conversation_history', None)
-                st.session_state.pop('run_id', None)
-                st.rerun()
+        st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class='info-section'>
+                <strong>Parent:</strong> {st.session_state['parent_name']}<br>
+                <strong>Child:</strong> {st.session_state['child_name']}<br>
+                <strong>Age:</strong> {st.session_state['child_age']}<br>
+                <strong>Situation:</strong> {st.session_state['situation']}
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Edit Information", use_container_width=True):
+            st.session_state['info_submitted'] = False
+            st.session_state.pop('conversation_history', None)
+            st.session_state.pop('run_id', None)
+            st.rerun()
+        
+        # Add a divider
+        st.markdown("---")
+        
+        # Add Saved Items button
+        if st.button("📚 View Saved Items", key="view_saved_items", use_container_width=True):
+            st.session_state['show_saved_items'] = True
+            st.rerun()
 
-    # Feature selection and routing
-    if feature:
-        # Convert feature name to match URL format
-        feature_map = {
-            'role-play_simulation': 'Role-Play Simulation',
-            'role_play_simulation': 'Role-Play Simulation',
-            'role-play-simulation': 'Role-Play Simulation', 
-            'simulation': 'Role-Play Simulation',
-            'advice': 'Advice',
-            'communication_techniques': 'Communication Techniques',
-            'conversation_starters': 'Conversation Starters'
-        }
-        selected = feature_map.get(feature.lower(), None)
-        if selected:
-            print(f"Mapped feature: {selected}")
-            if is_embedded:
-                st.session_state.show_tutorial = False
-        else:
-            print(f"Invalid feature parameter: {feature}")
-            selected = None
-    else:
-        if not is_embedded and 'show_tutorial' not in st.session_state:
-            print("Showing tutorial")
-            show_tutorial()
-            return
-        
-        st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
-        
-        selected = st.radio(
-            "Choose an option:",
-            list(feature_order.keys()),
-            horizontal=True,
-            help="Select a tool that best matches your current needs"
-        )
-        print(f"Selected from radio: {selected}")
-
-    # Show feature description if not embedded
-    if not is_embedded:
-        st.info(feature_order[selected])
-
-    # Process and display selected feature
-    print(f"Processing selected feature: {selected}")
-    if selected == "Advice":
-        print("Displaying Advice")
-        track_feature_visit("advice")
-        display_advice(st.session_state['parent_name'], st.session_state['child_age'], st.session_state['situation'])
-    
-    elif selected == "Communication Techniques":
-        print("Displaying Communication Techniques")
-        track_feature_visit("communication_techniques")
-        display_communication_techniques(st.session_state['situation'])
-    
-    elif selected == "Conversation Starters":
-        print("Displaying Conversation Starters")
-        track_feature_visit("conversation_starters")
-        display_conversation_starters(st.session_state['situation'])
-    
-    elif selected == "Role-Play Simulation" or selected == "role-play_simulation":
-        print("Attempting to start simulation")
-        track_feature_visit("role_play")
-        
-        # Simulation initialization and setup
-        if st.query_params.get("embed", "false").lower() == "true":
-            if 'simulation_initialized' not in st.session_state:
-                reset_simulation()
-                st.session_state.simulation_initialized = True
-        
-        # Ensure required session state variables exist
-        if not all(key in st.session_state for key in ['parent_name', 'child_name', 'child_age', 'situation']):
-            print("Missing required session state variables")
-            # Try to get from URL parameters
-            prolific_id = st.query_params.get("prolific_id")
-            child_name = st.query_params.get("child_name")
-            child_age = st.query_params.get("child_age")
-            situation = st.query_params.get("situation")
-            
-            if all([prolific_id, child_name, child_age, situation]):
-                st.session_state['parent_name'] = unquote(prolific_id)
-                st.session_state['child_name'] = unquote(child_name)
-                st.session_state['child_age'] = unquote(child_age)
-                st.session_state['situation'] = unquote(situation)
-                print("Successfully loaded parameters from URL")
-            else:
-                print("Missing required URL parameters")
-                st.error("Missing required information. Please ensure all fields are properly filled.")
-                return
-        
-        # Initialize conversation history if not exists
-        if 'conversation_history' not in st.session_state:
-            st.session_state['conversation_history'] = []
-        
-        # Start the simulation
-        simulate_conversation_streamlit(
-            st.session_state['parent_name'],
-            st.session_state['child_age'],
-            st.session_state['situation']
-        )
-
-    # Show progress sidebar in non-embedded mode
-    if not is_embedded:
+        # Display progress sidebar
+        st.markdown("---")
         display_progress_sidebar(feature_order)
 
-    
-if __name__ == "__main__":  # Align with def main()
+    if 'show_tutorial' not in st.session_state:
+        show_tutorial()
+    else:
+        st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
+
+        # Show either saved items or main content
+        if st.session_state.get('show_saved_items', False):
+            display_saved_items()
+            if st.button("← Back to Main Menu", type="secondary"):
+                st.session_state['show_saved_items'] = False
+                st.rerun()
+        else:
+            selected = st.radio(
+                "Choose an option:",
+                list(feature_order.keys()),
+                horizontal=True,
+                help="Select a tool that best matches your current needs"
+            )
+
+            st.info(feature_order[selected])
+
+            if selected == "Advice":
+                track_feature_visit("advice")
+                display_advice(
+                    st.session_state['parent_name'],
+                    st.session_state['child_age'],
+                    st.session_state['situation']
+                )
+            elif selected == "Communication Techniques":
+                track_feature_visit("communication_techniques")
+                display_communication_techniques(st.session_state['situation'])
+            elif selected == "Conversation Starters":
+                track_feature_visit("conversation_starters")
+                display_conversation_starters(st.session_state['situation'])
+            elif selected == "Role-Play Simulation":
+                track_feature_visit("role_play")
+                simulate_conversation_streamlit(
+                    st.session_state['parent_name'],
+                    st.session_state['child_age'],
+                    st.session_state['situation']
+                )
+            elif selected == "Saved Items":
+                track_feature_visit("saved_items")
+                display_saved_items()
+
+    # Update session analytics
+    if 'session_start_time' in st.session_state:
+        current_time = datetime.now()
+        st.session_state['session_duration'] = (current_time - st.session_state['session_start_time']).total_seconds()
+        
+        # Update last interaction time
+        st.session_state['last_interaction_time'] = current_time
+        
+    # Check for session timeout (30 minutes)
+    if 'last_interaction_time' in st.session_state:
+        time_since_last_interaction = (datetime.now() - st.session_state['last_interaction_time']).total_seconds()
+        if time_since_last_interaction > 1800:  # 30 minutes
+            st.warning("Your session has been inactive for 30 minutes. Please refresh the page to continue.")
+
+if __name__ == "__main__":
     try:
         init_session_state()
         check_environment()
@@ -1877,3 +2518,4 @@ if __name__ == "__main__":  # Align with def main()
     except Exception as e:
         st.error(f"Application error: {str(e)}")
         print(f"Detailed error: {str(e)}")
+        traceback.print_exc()
