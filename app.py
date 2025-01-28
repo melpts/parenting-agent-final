@@ -636,26 +636,46 @@ class PersonaManager:
         self.supabase = supabase_manager
         
     def save_persona(self, parent_id: str, persona_data: dict) -> Tuple[bool, str]:
+        """Save persona to the child_personas table
+        
+        Args:
+            parent_id (str): Prolific ID of the parent
+            persona_data (dict): Dictionary containing persona information
+            
+        Returns:
+            Tuple[bool, str]: Success status and message
+        """
         try:
             if not self.supabase.ensure_initialized():
                 return False, "Database not initialized"
                 
             data = {
                 'parent_id': parent_id,
-                'persona_name': persona_data.get('name'),
-                'persona_data': persona_data,
+                'persona_name': persona_data.get('name', ''),
+                'persona_data': persona_data.get('data', {}),
                 'created_at': datetime.utcnow().isoformat()
             }
             
+            # Access supabase directly from the manager
             result = self.supabase.supabase.table('child_personas').insert(data).execute()
             return (True, "Persona saved successfully") if result.data else (False, "Failed to save persona")
             
         except Exception as e:
             print(f"Error saving persona: {e}")
+            traceback.print_exc()
             return False, str(e)
     
     def load_personas(self, parent_id: str) -> Tuple[bool, List[dict]]:
+        """Load all personas for a parent
+        
+        Args:
+            parent_id (str): Prolific ID of the parent
+            
+        Returns:
+            Tuple[bool, List[dict]]: Success status and list of personas
+        """
         try:
+            # Access supabase directly from the manager
             result = self.supabase.supabase.table('child_personas')\
                 .select("*")\
                 .eq('parent_id', parent_id)\
@@ -665,10 +685,21 @@ class PersonaManager:
             
         except Exception as e:
             print(f"Error loading personas: {e}")
+            traceback.print_exc()
             return False, []
     
     def update_persona(self, persona_id: str, updated_data: dict) -> Tuple[bool, str]:
+        """Update an existing persona
+        
+        Args:
+            persona_id (str): ID of the persona to update
+            updated_data (dict): New persona data
+            
+        Returns:
+            Tuple[bool, str]: Success status and message
+        """
         try:
+            # Access supabase directly from the manager
             result = self.supabase.supabase.table('child_personas')\
                 .update({"persona_data": updated_data})\
                 .eq('id', persona_id)\
@@ -678,10 +709,20 @@ class PersonaManager:
             
         except Exception as e:
             print(f"Error updating persona: {e}")
+            traceback.print_exc()
             return False, str(e)
     
     def delete_persona(self, persona_id: str) -> Tuple[bool, str]:
+        """Delete a persona
+        
+        Args:
+            persona_id (str): ID of the persona to delete
+            
+        Returns:
+            Tuple[bool, str]: Success status and message
+        """
         try:
+            # Access supabase directly from the manager
             result = self.supabase.supabase.table('child_personas')\
                 .delete()\
                 .eq('id', persona_id)\
@@ -691,6 +732,7 @@ class PersonaManager:
             
         except Exception as e:
             print(f"Error deleting persona: {e}")
+            traceback.print_exc()
             return False, str(e)
         
 # Initialize managers
@@ -772,11 +814,18 @@ def display_persona_customization():
             st.rerun()
         return
 
-    st.markdown("### Customize Child Persona")
-    
     # Load saved profiles first
     st.markdown("#### Saved Child Profiles")
-    saved_profiles = st.session_state.get('saved_personas', {})
+    parent_id = st.session_state.get('parent_name')
+    
+    if parent_id:
+        success, loaded_profiles = persona_manager.load_personas(parent_id)
+        if success:
+            saved_profiles = {profile['persona_name']: profile['persona_data'] for profile in loaded_profiles}
+            st.session_state['saved_personas'] = saved_profiles
+    else:
+        saved_profiles = st.session_state.get('saved_personas', {})
+    
     profile_options = ["(None)"] + list(saved_profiles.keys())
     selected_profile = st.selectbox(
         "Select a saved profile to load",
@@ -807,7 +856,7 @@ def display_persona_customization():
             emotion_options = ["Very Reserved", "Somewhat Reserved", "Balanced", 
                              "Somewhat Expressive", "Very Expressive"]
             emotion_style = st.radio(
-                "How does your child typically show their emotions? Choose emotional expression level",
+                "How does your child typically show their emotions?",
                 emotion_options,
                 index=emotion_options.index(st.session_state.get('temp_emotion_style', 'Balanced')),
                 horizontal=True
@@ -817,7 +866,7 @@ def display_persona_customization():
             st.markdown("#### Response Length")
             length_options = ["Very Brief", "Brief", "Medium", "Detailed", "Very Detailed"]
             response_length = st.radio(
-                "How detailed are your child's typical responses? Choose typical response length",
+                "How detailed are your child's typical responses?",
                 length_options,
                 index=length_options.index(st.session_state.get('temp_response_length', 'Medium')),
                 horizontal=True
@@ -839,7 +888,7 @@ def display_persona_customization():
         ]
         
         selected_behaviors = st.multiselect(
-            "Select all the behaviors that match your child's typical communication style. These help create more realistic responses in the simulation.",
+            "Select all the behaviors that match your child's typical communication style",
             options=behavior_options,
             default=st.session_state.get('temp_behaviors', [])
         )
@@ -884,11 +933,11 @@ def display_persona_customization():
                     st.session_state['child_persona'] = new_persona
                     update_child_mood(new_persona)
                     
-                    # Save to database
-                    if hasattr(st.session_state, 'supabase_client'):
+                    # Save to database if we have a parent_id
+                    if parent_id:
                         try:
-                            success, result = supabase_manager.save_persona(
-                                st.session_state['parent_name'],
+                            success, result = persona_manager.save_persona(
+                                parent_id,
                                 {
                                     "name": profile_name,
                                     "data": new_persona
@@ -896,17 +945,18 @@ def display_persona_customization():
                             )
                             if success:
                                 st.success(f"Profile '{profile_name}' saved successfully!")
+                                time.sleep(0.5)  # Brief pause for feedback
+                                st.session_state['show_persona_customization'] = False
+                                st.rerun()
                             else:
                                 st.error(f"Failed to save profile: {result}")
                         except Exception as e:
                             st.error(f"Error saving profile: {str(e)}")
+                            print(f"Detailed error: {str(e)}")
+                            traceback.print_exc()
                     else:
-                        st.success(f"Profile '{profile_name}' saved successfully!")
+                        st.warning("Please enter your Prolific ID to save profiles")
                     
-                    # Clear temporary states
-                    st.session_state['show_persona_customization'] = False
-                    st.rerun()
-
     # Store current values in temporary session state
     st.session_state['temp_communication_style'] = communication_style
     st.session_state['temp_emotion_style'] = emotion_style
