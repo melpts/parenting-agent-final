@@ -14,7 +14,6 @@ psycopg2-binary
 urllib3
 pandas
 python-dateutil
-plotly
 
 fastapi==0.104.1
 starlette==0.27.0
