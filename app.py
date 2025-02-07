@@ -1219,31 +1219,42 @@ class SupabaseManager:
             return False, error_msg
 
     def save_simulation_data(self, simulation_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
-        """Save simulation data with validation"""
         if not self.ensure_initialized():
             return False, "Failed to initialize Supabase connection"
-
         try:
-            required_fields = ['user_id', 'simulation_data', 'created_at']
+            # now require the following keys:
+            required_fields = [
+                'user_id', 'strategy', 'child_age', 'situation',
+                'turn_count', 'parent_message', 'created_at'
+            ]
             missing_fields = [f for f in required_fields if f not in simulation_data]
             if missing_fields:
                 raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
-
+            
+            # Build the simulation_data object that you want to store.
+            new_simulation_data = {
+                "strategy": simulation_data["strategy"],
+                "child_age": simulation_data["child_age"],
+                "situation": simulation_data["situation"],
+                "turn_count": simulation_data["turn_count"],
+                "parent_message": simulation_data["parent_message"]
+            }
+        
             data = {
                 "user_id": simulation_data["user_id"],
-                "simulation_data": simulation_data["simulation_data"],
+                "simulation_data": new_simulation_data,
                 "created_at": simulation_data["created_at"],
                 "completed_at": None,
                 "langsmith_run_id": simulation_data.get("langsmith_run_id")
             }
-
+        
             result = self.supabase.table('simulations').insert(data).execute()
             return True, result.data[0].get('id') if result.data else None
-
         except Exception as e:
             print(f"Error saving simulation: {str(e)}")
             traceback.print_exc()
             return False, None
+
 
     def complete_simulation(self, simulation_id: str, run_id: Optional[str] = None) -> Tuple[bool, str]:
         """Mark a simulation as completed"""
@@ -1266,42 +1277,96 @@ class SupabaseManager:
         except Exception as e:
             return False, f"Error completing simulation: {str(e)}"
 
-    def save_simulation_analytics(self, simulation_id: str, metrics: dict) -> bool:
-        """Save analytics data to database"""
-        if not self.ensure_initialized():
-            return False
-        
-        try:
-            data = {
-                "simulation_id": simulation_id,
-                "user_id": st.session_state.parent_name,
-                "metrics": metrics,
-                "created_at": datetime.utcnow().isoformat()
-            }
+    def save_simulation_analytics(self, simulation_id: str, messages: list) -> bool:
+            """
+            Calculate detailed simulation analytics from conversation messages and save them
+            to the simulation_analytics table. Detailed metrics include:
+            - total_exchanges: Number of parent messages.
+            - average_response_time: Average response time (in seconds).
+            - most_used_strategy: The most frequently used strategy.
+            - strategy_usage: Counts per strategy (or a friendly message if none).
+            - effective_approaches: Count of messages with a positive feedback hint.
+            - growth_areas: Count of messages with detailed feedback suggestions.
+            - conversation_timeline: A list of chat messages with role, content, and timestamp.
             
-            result = self.supabase.table('simulation_analytics').insert(data).execute()
-            return bool(result.data)
-        except Exception as e:
-            print(f"Error saving analytics: {e}")
-            return False
-        
-    def get_saved_items(self, parent_id: str) -> Tuple[bool, List[dict]]:
-        """Get saved items for a parent"""
-        if not self.ensure_initialized():
-            return False, []
-            
-        try:
-            result = self.supabase.table('saved_items')\
-                .select("*")\
-                .eq('parent_id', parent_id)\
-                .order('saved_at', desc=True)\
-                .execute()
+            Also, the parent's Prolific ID is saved in the user_id field.
+            """
+            if not self.ensure_initialized():
+                return False
+            try:
+                total_exchanges = 0
+                strategy_usage = {}
+                response_times = []
+                effective_approaches = 0
+                growth_areas = 0
+                conversation_timeline = []
                 
-            return True, result.data if result.data else []
-            
-        except Exception as e:
-            print(f"Error getting saved items: {e}")
-            return False, []
+                prev_time = None
+                for msg in messages:
+                    # Record each message for the timeline.
+                    conversation_timeline.append({
+                        "role": msg.get("role"),
+                        "content": msg.get("content"),
+                        "timestamp": msg.get("timestamp")
+                    })
+                    if msg.get("role") == "parent":
+                        total_exchanges += 1
+                        # Count strategy usage.
+                        if "strategy_used" in msg:
+                            strat = msg["strategy_used"]
+                            strategy_usage[strat] = strategy_usage.get(strat, 0) + 1
+                        # Calculate response time.
+                        if "timestamp" in msg:
+                            current_time = datetime.fromisoformat(msg["timestamp"])
+                            if prev_time is not None:
+                                diff = (current_time - prev_time).total_seconds()
+                                response_times.append(diff)
+                            prev_time = current_time
+                        # Count feedback items.
+                        if "feedback" in msg:
+                            feedback = msg["feedback"]
+                            if feedback.get("hint"):
+                                effective_approaches += 1
+                            if feedback.get("detailed"):
+                                growth_areas += 1
+                
+                avg_response_time = (sum(response_times) / len(response_times)) if response_times else 0.0
+                most_used_strategy = "None"
+                if strategy_usage:
+                    most_used_strategy = max(strategy_usage.items(), key=lambda x: x[1])[0]
+                
+                # Use a friendly message if there is no strategy usage data.
+                strategy_usage_display = strategy_usage if strategy_usage else "No strategy usage data available"
+                
+                detailed_metrics = {
+                    "total_exchanges": total_exchanges,
+                    "average_response_time": avg_response_time,
+                    "most_used_strategy": most_used_strategy,
+                    "strategy_usage": strategy_usage_display,
+                    "effective_approaches": effective_approaches,
+                    "growth_areas": growth_areas,
+                    "conversation_timeline": conversation_timeline
+                }
+                
+                # Get the parent's prolific ID from session_state.
+                parent_id = st.session_state.get('parent_name')
+                if not parent_id:
+                    print("No parent_name found in session_state. Cannot save user_id in analytics.")
+                    return False
+                
+                data = {
+                    "simulation_id": simulation_id,
+                    "user_id": parent_id,
+                    "metrics": detailed_metrics,
+                    "created_at": datetime.utcnow().isoformat()
+                }
+                
+                result = self.supabase.table('simulation_analytics').insert(data).execute()
+                return bool(result.data)
+            except Exception as e:
+                print(f"Error saving detailed simulation analytics: {e}")
+                traceback.print_exc()
+                return False
 
     def save_item_to_supabase(self, parent_id: str, item_type: str, title: str, content: str, metadata: dict) -> Tuple[bool, str]:
         """Save generic content item to Supabase"""
@@ -1473,10 +1538,312 @@ class PersonaManager:
                 return True, "Persona data valid"
             except Exception as e:
                 return False, f"Validation error: {str(e)}"
+            
+class SimulationAnalytics:
+    def __init__(self, supabase_manager):
+        self.supabase = supabase_manager
+        
+    def start_simulation(self, user_id: str) -> Tuple[bool, Optional[str]]:
+        """Initialize a new simulation session"""
+        try:
+            simulation_data = {
+                "user_id": user_id,
+                "simulation_data": {
+                    "start_time": datetime.utcnow().isoformat(),
+                    "strategy_usage": {},
+                    "response_times": [],
+                    "emotional_trajectory": [],
+                    "interaction_patterns": []
+                },
+                "created_at": datetime.utcnow().isoformat()
+            }
+            
+            success, simulation_id = self.supabase.save_simulation_data(simulation_data)
+            if success:
+                return True, simulation_id
+            return False, None
+            
+        except Exception as e:
+            print(f"Error starting simulation: {e}")
+            traceback.print_exc()
+            return False, None
+
+    def update_simulation_metrics(self, simulation_id: str, metrics: dict) -> bool:
+        """Update metrics for an ongoing simulation"""
+        try:
+            if not simulation_id:
+                return False
+                
+            data = {
+                "simulation_id": simulation_id,
+                "metrics": metrics,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.supabase.table('simulation_analytics')\
+                .insert(data)\
+                .execute()
+                
+            return bool(result.data)
+            
+        except Exception as e:
+            print(f"Error updating simulation metrics: {e}")
+            traceback.print_exc()
+            return False
+
+    def complete_simulation(self, simulation_id: str, final_metrics: dict) -> bool:
+        """Mark simulation as completed and save final metrics"""
+        try:
+            # Update simulation completion status
+            success, _ = self.supabase.complete_simulation(simulation_id)
+            if not success:
+                return False
+            
+            # Save final analytics
+            data = {
+                "simulation_id": simulation_id,
+                "metrics": final_metrics,
+                "is_final": True,
+                "completed_at": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.supabase.table('simulation_analytics')\
+                .insert(data)\
+                .execute()
+                
+            return bool(result.data)
+            
+        except Exception as e:
+            print(f"Error completing simulation: {e}")
+            traceback.print_exc()
+            return False
+
+    def calculate_simulation_metrics(messages: list) -> dict:
+        """Calculate detailed metrics from simulation messages."""
+        try:
+            total_exchanges = 0
+            strategy_usage = {}
+            response_times = []
+            effective_approaches = 0
+            growth_areas = 0
+            conversation_timeline = []
+
+            prev_time = None
+            for msg in messages:
+                # Record timeline regardless of role.
+                conversation_timeline.append({
+                    "role": msg.get("role"),
+                    "content": msg.get("content"),
+                    "timestamp": msg.get("timestamp")
+                })
+                if msg['role'] == 'parent':
+                    total_exchanges += 1
+                    if 'strategy_used' in msg:
+                        strategy = msg['strategy_used']
+                        strategy_usage[strategy] = strategy_usage.get(strategy, 0) + 1
+                    if 'timestamp' in msg:
+                        current_time = datetime.fromisoformat(msg['timestamp'])
+                        if prev_time:
+                            response_times.append((current_time - prev_time).total_seconds())
+                        prev_time = current_time
+                    if 'feedback' in msg:
+                        if msg['feedback'].get('hint'):
+                            effective_approaches += 1
+                        if msg['feedback'].get('detailed'):
+                            growth_areas += 1
+
+            avg_response_time = sum(response_times) / len(response_times) if response_times else 0
+
+            most_used_strategy = "None"
+            if strategy_usage:
+                most_used_strategy = max(strategy_usage.items(), key=lambda x: x[1])[0]
+            
+            detailed_metrics = {
+                "total_exchanges": total_exchanges,
+                "average_response_time": avg_response_time,
+                "most_used_strategy": most_used_strategy,
+                "strategy_usage": strategy_usage if strategy_usage else "No strategy usage data available",
+                "effective_approaches": effective_approaches,
+                "growth_areas": growth_areas,
+                "conversation_timeline": conversation_timeline
+            }
+            
+            return detailed_metrics
+        except Exception as e:
+            print(f"Error calculating metrics: {e}")
+            traceback.print_exc()
+            return {}
+
+def track_simulation_progress(analytics: SimulationAnalytics, messages: list) -> None:
+    """
+    Track simulation progress by updating the simulation record with the current
+    conversation chat (from messages) and then saving current metrics to simulation_analytics.
+    """
+    try:
+        # If no simulation exists, start a new simulation.
+        if not st.session_state.get('current_simulation_id'):
+            simulation_data = {
+                "start_time": datetime.utcnow().isoformat(),
+                "strategy_usage": {},
+                "response_times": [],
+                "emotional_trajectory": [],
+                "interaction_patterns": [],
+                "conversation_history": []  # New key for the chat
+            }
+            
+            result = supabase_manager.supabase.table('simulations').insert({
+                "user_id": st.session_state.get('parent_name'),
+                "simulation_data": simulation_data,
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+            
+            if result.data:
+                simulation_id = result.data[0].get('id')
+                st.session_state['current_simulation_id'] = simulation_id
+                # Save simulation_data in session for later updates.
+                st.session_state['simulation_data'] = simulation_data
+            else:
+                print("Failed to start simulation tracking")
+                return
+
+        # Update conversation_history in simulation_data.
+        current_conversation = st.session_state.conversation_branches[st.session_state.current_branch]
+        simulation_data = st.session_state.get('simulation_data', {})
+        simulation_data["conversation_history"] = current_conversation
+        
+        update_result = supabase_manager.supabase.table('simulations').update({
+            "simulation_data": simulation_data
+        }).eq("id", st.session_state['current_simulation_id']).execute()
+        if not update_result.data:
+            print("Failed to update conversation history in simulation record")
+        
+        # Now, calculate current metrics.
+        current_metrics = {
+            'total_exchanges': 0,
+            'strategy_usage': {},
+            'response_times': [],
+            'feedback_stats': {
+                'positive': 0,
+                'constructive': 0
+            }
+        }
+        
+        prev_time = None
+        for msg in messages:
+            if msg.get('role') == 'parent':
+                current_metrics['total_exchanges'] += 1
+                
+                if 'strategy_used' in msg:
+                    strat = msg['strategy_used']
+                    current_metrics['strategy_usage'][strat] = current_metrics['strategy_usage'].get(strat, 0) + 1
+                
+                if 'timestamp' in msg:
+                    current_time = datetime.fromisoformat(msg['timestamp'])
+                    if prev_time:
+                        response_time = (current_time - prev_time).total_seconds()
+                        current_metrics['response_times'].append(response_time)
+                    prev_time = current_time
+                
+                if 'feedback' in msg:
+                    if msg['feedback'].get('hint'):
+                        current_metrics['feedback_stats']['positive'] += 1
+                    if msg['feedback'].get('detailed'):
+                        current_metrics['feedback_stats']['constructive'] += 1
+
+        # Save analytics to Supabase.
+        analytics_data = {
+            'simulation_id': st.session_state['current_simulation_id'],
+            'metrics': current_metrics,
+            'created_at': datetime.utcnow().isoformat(),
+            'is_final': False
+        }
+        
+        result = supabase_manager.supabase.table('simulation_analytics').insert(analytics_data).execute()
+        if not result.data:
+            print("Failed to save analytics")
+            
+    except Exception as e:
+        print(f"Error tracking simulation progress: {e}")
+        traceback.print_exc()
+
+
+
+def handle_simulation_completion(analytics: SimulationAnalytics) -> None:
+    """Handle simulation completion and save final analytics"""
+    try:
+        simulation_id = st.session_state.get('current_simulation_id')
+        if not simulation_id:
+            return
+            
+        # Calculate final metrics
+        messages = st.session_state.conversation_branches[st.session_state.current_branch]
+        final_metrics = {
+            'total_exchanges': len([m for m in messages if m['role'] == 'parent']),
+            'strategy_usage': {},
+            'response_times': [],
+            'feedback_stats': {'positive': 0, 'constructive': 0},
+            'completion_time': datetime.utcnow().isoformat(),
+            'total_duration': (
+                datetime.utcnow() - 
+                datetime.fromisoformat(st.session_state.simulation_start_time)
+            ).total_seconds()
+        }
+        
+        # Calculate detailed metrics
+        prev_time = None
+        for msg in messages:
+            if msg['role'] == 'parent':
+                if 'strategy_used' in msg:
+                    strategy = msg['strategy_used']
+                    final_metrics['strategy_usage'][strategy] = \
+                        final_metrics['strategy_usage'].get(strategy, 0) + 1
+                        
+                if 'timestamp' in msg:
+                    current_time = datetime.fromisoformat(msg['timestamp'])
+                    if prev_time:
+                        response_time = (current_time - prev_time).total_seconds()
+                        final_metrics['response_times'].append(response_time)
+                    prev_time = current_time
+                    
+                if 'feedback' in msg:
+                    if msg['feedback'].get('hint'):
+                        final_metrics['feedback_stats']['positive'] += 1
+                    if msg['feedback'].get('detailed'):
+                        final_metrics['feedback_stats']['constructive'] += 1
+        
+        # Save final analytics
+        analytics_data = {
+            'simulation_id': simulation_id,
+            'metrics': final_metrics,
+            'created_at': datetime.utcnow().isoformat(),
+            'is_final': True
+        }
+        
+        analytics_result = supabase_manager.supabase.table('simulation_analytics')\
+            .insert(analytics_data)\
+            .execute()
+            
+        # Update simulation as completed
+        simulation_result = supabase_manager.supabase.table('simulations')\
+            .update({"completed_at": datetime.utcnow().isoformat()})\
+            .eq('id', simulation_id)\
+            .execute()
+            
+        if analytics_result.data and simulation_result.data:
+            print(f"Successfully completed simulation {simulation_id}")
+            st.session_state['current_simulation_id'] = None
+        else:
+            print("Failed to save completion analytics")
+            
+    except Exception as e:
+        print(f"Error handling simulation completion: {e}")
+        traceback.print_exc()
 
 # Initialize managers
 supabase_manager = SupabaseManager()
 persona_manager = PersonaManager(supabase_manager)
+analytics_manager = SimulationAnalytics(supabase_manager)
+
 
 def display_persona_wizard():
     st.markdown("<h2 class='section-header'>Create Child Persona</h2>", unsafe_allow_html=True)
@@ -1797,26 +2164,53 @@ def try_rerun():
 
 
 def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
-    # If no persona exists, prompt the user to create one.
+    """
+    Complete simulation function with integrated analytics tracking and user interaction.
+    """
+    # Initialize analytics manager if not exists
+    if 'analytics_manager' not in st.session_state:
+        st.session_state.analytics_manager = SimulationAnalytics(supabase_manager)
+
+    # Initialize simulation metrics if not exists
+    if 'simulation_metrics' not in st.session_state:
+        st.session_state.simulation_metrics = {
+            'total_exchanges': 0,
+            'strategy_usage': {},
+            'response_times': [],
+            'feedback_stats': {'positive': 0, 'constructive': 0},
+            'emotional_trajectory': []
+        }
+
+    # If no persona exists, prompt the user to create one
     if not st.session_state.get('child_persona'):
         st.info("To begin, please create a persona for your child")
         if st.button("➕ Create New Persona", key="create_new_persona", use_container_width=True):
             st.session_state['show_persona_wizard'] = True
             st.session_state['role_play_active'] = True
             time.sleep(0.5)
-            try_rerun()  # Use the fallback function instead of st.experimental_rerun()
+            try_rerun()
         return
 
-    # If simulation stage is not already conversation or review, force it to conversation.
+    # Initialize simulation if needed
     if st.session_state.get('simulation_stage') not in ['conversation', 'review']:
+        # Set behavior tags from persona if available
         if st.session_state.child_persona.get('behaviors'):
             st.session_state.selected_behavior_tags = st.session_state.child_persona['behaviors']
+        
         st.session_state.simulation_stage = 'conversation'
+        
+        # Start new simulation session
+        success, simulation_id = st.session_state.analytics_manager.start_simulation(
+            st.session_state.get('parent_name')
+        )
+        if success:
+            st.session_state['current_simulation_id'] = simulation_id
+            st.session_state['simulation_start_time'] = datetime.utcnow().isoformat()
         try_rerun()
 
     # --- Conversation Stage ---
     if st.session_state.simulation_stage == 'conversation':
-        # Display the explanation block at the top.
+        # Display simulation explanation
         st.markdown("""
         ### How the Role-Play Simulation Works
         1. **Create Your Child's Persona:** Create a persona that matches your child's communication style.
@@ -1825,6 +2219,7 @@ def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
         4. **Get Feedback:** Receive immediate feedback on your responses.
         """, unsafe_allow_html=True)
 
+        # Strategy selection
         st.markdown("### Choose Communication Strategy")
         strategy = st.selectbox(
             "Select a strategy to practice:",
@@ -1832,9 +2227,23 @@ def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
             key="current_strategy",
             help="Select a communication strategy"
         )
+        
         if strategy in STRATEGY_EXPLANATIONS:
             st.markdown(STRATEGY_EXPLANATIONS[strategy], unsafe_allow_html=True)
 
+        # Active persona banner
+        if st.session_state.get('child_persona'):
+            st.markdown(f"""
+                <div class="active-persona-banner">
+                    <div class="persona-info">
+                        <span class="persona-label">Active Persona:</span>
+                        <span class="persona-name">{st.session_state.child_persona.get('name', 'Unnamed')}</span>
+                        <span class="persona-style">({st.session_state.child_persona.get('emotion_style', 'Balanced')})</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        # Display chat interface
         st.markdown("### Practice Conversation")
         display_chat_ui(
             st.session_state.get('child_name', 'Child'),
@@ -1842,7 +2251,13 @@ def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
             strategy
         )
 
-        # Use a text_area with its own default value (do not modify the key value after creation).
+        # Track current progress
+        track_simulation_progress(
+            st.session_state.analytics_manager,
+            st.session_state.conversation_branches[st.session_state.current_branch]
+        )
+
+        # User input area
         user_input = st.text_area(
             "Your response:",
             key="chat_input",
@@ -1851,54 +2266,109 @@ def simulate_conversation_streamlit(name: str, child_age: str, situation: str):
             value=st.session_state.get("chat_input", "")
         )
 
+        # Action buttons
         col1, col2 = st.columns(2)
         with col1:
             send_button = st.button("💬 Send Response", key="send_response", type="primary", use_container_width=True)
         with col2:
             end_button = st.button("🎯 End Practice", key="end_practice", type="secondary", use_container_width=True)
 
+        # Handle send response
         if send_button and user_input.strip():
             try:
+                # Record start time for response timing
+                response_start_time = datetime.utcnow()
+                
+                # Generate feedback and response
                 feedback = provide_realtime_feedback(
                     user_input, strategy, situation, child_age,
                     st.session_state.conversation_branches[st.session_state.current_branch]
                 )
+                
                 child_response = generate_child_response(
                     st.session_state.conversation_branches[st.session_state.current_branch],
                     child_age, situation, strategy, user_input
                 )
+                
+                # Calculate response time
+                response_time = (datetime.utcnow() - response_start_time).total_seconds()
+
+                # Update simulation metrics
+                st.session_state.simulation_metrics['total_exchanges'] += 1
+                st.session_state.simulation_metrics['response_times'].append(response_time)
+                st.session_state.simulation_metrics['strategy_usage'][strategy] = \
+                    st.session_state.simulation_metrics['strategy_usage'].get(strategy, 0) + 1
+                
+                if feedback.get('hint'):
+                    st.session_state.simulation_metrics['feedback_stats']['positive'] += 1
+                if feedback.get('detailed'):
+                    st.session_state.simulation_metrics['feedback_stats']['constructive'] += 1
+                
+                # Add messages to conversation
                 st.session_state.conversation_branches[st.session_state.current_branch].extend([
-                    {"role": "parent", "content": user_input, "feedback": feedback, "strategy_used": strategy,
-                     "timestamp": datetime.utcnow().isoformat()},
-                    {"role": "child", "content": child_response, "timestamp": datetime.utcnow().isoformat()}
+                    {
+                        "role": "parent",
+                        "content": user_input,
+                        "feedback": feedback,
+                        "strategy_used": strategy,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "response_time": response_time
+                    },
+                    {
+                        "role": "child",
+                        "content": child_response,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
                 ])
-                # Clear the input by removing the key so that on rerun, the widget resets.
+                
+                # Update analytics
+                track_simulation_progress(
+                    st.session_state.analytics_manager,
+                    st.session_state.conversation_branches[st.session_state.current_branch]
+                )
+                
+                # Clear input and refresh
                 if "chat_input" in st.session_state:
                     del st.session_state["chat_input"]
                 try_rerun()
+                
             except Exception as e:
                 st.error("Error processing your response. Please try again.")
                 print(f"Conversation error: {str(e)}")
                 traceback.print_exc()
 
+        # Handle end practice
         if end_button:
-            st.session_state.simulation_stage = 'review'
-            try_rerun()
+            try:
+                # Handle simulation completion and analytics
+                handle_simulation_completion(st.session_state.analytics_manager)
+                # Update session state
+                st.session_state.simulation_stage = 'review'
+                try_rerun()
+                
+            except Exception as e:
+                st.error("Error ending practice session. Please try again.")
+                print(f"End practice error: {str(e)}")
+                traceback.print_exc()
 
     # --- Review Stage ---
     elif st.session_state.simulation_stage == 'review':
         st.success("Practice session completed! Let's review your conversation.")
-        display_conversation_review(st.session_state.conversation_branches[st.session_state.current_branch])
+        
+        # Display conversation review with current messages
+        display_conversation_review(
+            st.session_state.conversation_branches[st.session_state.current_branch]
+        )
 
 def display_conversation_review(messages: list):
     """Display detailed feedback from the conversation practice."""
     st.markdown("<h3>Conversation Practice Analysis</h3>", unsafe_allow_html=True)
-    
+
     total_exchanges = sum(1 for msg in messages if msg['role'] == 'parent')
     strategy_usage = {}
     all_hints = []
     all_suggestions = []
-    
+
     for msg in messages:
         if msg['role'] == 'parent':
             strategy = msg.get('strategy_used')
@@ -1944,16 +2414,45 @@ def display_conversation_review(messages: list):
                 </div>
             </div>
         """, unsafe_allow_html=True)
-    
+
     # Callback logic for the Start New Practice button:
     if st.button("🔄 Start New Practice", key="start_new_practice", type="primary", use_container_width=True):
+        # Save analytics to Supabase before resetting
+        if st.session_state.get('current_simulation_id'):
+            metrics = {
+                'total_exchanges': total_exchanges,
+                'strategy_usage': strategy_usage,
+                'completion_time': datetime.utcnow().isoformat(),
+                'completed': True
+            }
+            analytics_data = {
+                'simulation_id': st.session_state['current_simulation_id'],
+                'metrics': metrics,
+                'created_at': datetime.utcnow().isoformat(),
+                'is_final': True
+            }
+            
+            # Save to Supabase
+            try:
+                supabase_manager.supabase.table('simulation_analytics')\
+                    .insert(analytics_data)\
+                    .execute()
+                    
+                supabase_manager.supabase.table('simulations')\
+                    .update({"completed_at": datetime.utcnow().isoformat()})\
+                    .eq('id', st.session_state['current_simulation_id'])\
+                    .execute()
+            except Exception as e:
+                print(f"Error saving analytics: {e}")
+                traceback.print_exc()
+
+        # Reset state
         st.session_state.conversation_branches = {0: []}
         st.session_state.current_branch = 0
         st.session_state.simulation_stage = 'conversation'
         st.session_state.pop('chat_input', None)
         time.sleep(0.5)
-        try_rerun()  
-
+        try_rerun()
 
 def handle_chat_response(user_input: str, strategy: str, situation: str, child_age: str):
     """Handle chat response and feedback"""
@@ -2068,31 +2567,7 @@ def display_chat_ui(child_name: str, messages: list, strategy: str):
             """, unsafe_allow_html=True)
 
 
-def display_practice_summary(messages: list, metrics: dict):
-    """Display enhanced practice session summary"""
-    st.markdown("### Session Summary")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric(
-            "Total Exchanges",
-            len([m for m in messages if m['role'] == 'parent']),
-            help="Number of conversation turns"
-        )
-    
-    with col2:
-        strategy_usage = {}
-        for msg in messages:
-            if msg.get('strategy_used'):
-                strategy_usage[msg['strategy_used']] = strategy_usage.get(msg['strategy_used'], 0) + 1
-        most_used = max(strategy_usage.items(), key=lambda x: x[1])[0] if strategy_usage else "None"
-        st.metric("Most Used Strategy", most_used, help="Strategy used most frequently")
-    
-    with col3:
-        response_times = metrics.get('response_times', [])
-        avg_response_time = sum(response_times)/len(response_times) if response_times else 0
-        st.metric("Avg Response Time", f"{avg_response_time:.1f}s", help="Average time between responses")
+
     
 
 def provide_realtime_feedback(user_input: str, strategy: str, situation: str, child_age: str, conversation_history: list) -> dict:
@@ -2169,18 +2644,23 @@ def reset_simulation_state():
         'selected_behavior_tags': [],
         'current_strategy': "Active Listening",
         'simulation_metrics': {
+            'total_exchanges': 0,
             'response_times': [],
             'strategy_usage': {},
+            'feedback_stats': {'positive': 0, 'constructive': 0},
+            'emotional_trajectory': [],
             'interaction_patterns': [],
             'behavior_triggers': []
         },
-        'last_response_time': datetime.now(),
-        'stored_responses': {}
+        'simulation_start_time': datetime.utcnow().isoformat(),
+        'last_interaction_time': datetime.utcnow(),
+        'stored_responses': {},
+        'final_metrics': None
     }
     
     for var, value in simulation_vars.items():
         st.session_state[var] = value
-    
+        
     # Update child mood if context is available
     if all(st.session_state.get(k) for k in ['child_persona', 'situation', 'child_age']):
         try:
@@ -2571,18 +3051,23 @@ def init_simulation_state():
 
 def init_session_state():
     """Initialize all session state variables with proper defaults."""
+    
+    # Core session identifiers
     session_vars = {
-        # Core session identifiers
-        'run_id': str(uuid4()),
-        'simulation_id': str(uuid4()),
-        'current_simulation_id': None,
-        
         # User information
         'info_submitted': False,
         'parent_name': None,
         'child_name': None,
         'child_age': None,
         'situation': None,
+        'prolific_id': None,
+        'parent_info_id': None,
+        
+        # Simulation identifiers
+        'run_id': str(uuid4()),
+        'simulation_id': str(uuid4()),
+        'current_simulation_id': None,
+        'simulation_start_time': datetime.utcnow().isoformat(),
         
         # Enhanced persona management
         'show_persona_wizard': False,
@@ -2605,35 +3090,68 @@ def init_session_state():
         'current_branch': 0,
         'simulation_ended': False,
         'stored_responses': {},
+        'chat_input': '',
         
         # Enhanced metrics tracking
         'simulation_metrics': {
+            'total_exchanges': 0,
             'response_times': [],
-            'emotional_trajectory': [],
             'strategy_usage': {},
+            'feedback_stats': {
+                'positive': 0,
+                'constructive': 0
+            },
+            'emotional_trajectory': [],
             'interaction_patterns': [],
             'persona_influence': [],
             'behavior_triggers': []
         },
         
+        # Final metrics for review
+        'final_metrics': None,
+        
         # UI state
         'show_tutorial': True,
-        'strategy': "Active Listening",
+        'show_saved_items': False,
+        'current_strategy': "Active Listening",
         'show_feedback': True,
         'show_hints': True,
         'compact_view': False,
+        'role_play_active': False,
+        
+        # Feature tracking
+        'visited_features': set(),
         
         # Analytics
-        'session_start_time': datetime.now(),
-        'last_interaction_time': datetime.now(),
+        'session_start_time': datetime.utcnow(),
+        'last_interaction_time': datetime.utcnow(),
         'session_duration': 0,
-        'interaction_count': 0
+        'interaction_count': 0,
+        
+        # Analytics manager
+        'analytics_manager': None
     }
     
     # Initialize or update session state variables
     for var, default in session_vars.items():
         if var not in st.session_state:
             st.session_state[var] = default
+            
+    # Ensure conversation branches exist
+    if not st.session_state.conversation_branches:
+        st.session_state.conversation_branches = {0: []}
+        
+    # Initialize analytics manager if needed
+    if (st.session_state.analytics_manager is None and 
+        'supabase_manager' in globals()):
+        st.session_state.analytics_manager = SimulationAnalytics(supabase_manager)
+        
+    # Update session duration
+    if st.session_state.session_start_time:
+        st.session_state.session_duration = (
+            datetime.utcnow() - st.session_state.session_start_time
+        ).total_seconds()
+
 
 @st.cache_data(ttl=3600)
 def cached_openai_call(messages, model="gpt-4", temperature=0.7, max_tokens=150):
@@ -3161,21 +3679,60 @@ def show_tutorial():
             st.session_state.show_tutorial = False
             st.rerun()
 
+def update_session_analytics():
+    if 'session_start_time' in st.session_state:
+        current_time = datetime.now()
+        st.session_state['session_duration'] = (current_time - st.session_state['session_start_time']).total_seconds()
+        st.session_state['last_interaction_time'] = current_time
+        
+        # Check for session timeout (30 minutes)
+        time_since_last_interaction = (current_time - st.session_state['last_interaction_time']).total_seconds()
+        if time_since_last_interaction > 1800:
+            st.warning("Your session has been inactive for 30 minutes. Please refresh the page to continue.")
+
+def reset_session_info():
+    """Reset user session information for re-entry"""
+    keys_to_reset = [
+        'info_submitted',
+        'parent_name',
+        'child_name',
+        'child_age',
+        'situation',
+        'prolific_id',
+        'parent_info_id',
+        'conversation_branches',
+        'run_id',
+        'simulation_id',
+        'current_simulation_id',
+        'child_persona',
+        'final_metrics',
+        'simulation_metrics'
+    ]
+    
+    for key in keys_to_reset:
+        st.session_state.pop(key, None)
+        
+    # Reset simulation state
+    reset_simulation_state()
+
 def main():
+    """Main application function"""
     try:
+        # Initialize session state and environment
         init_session_state()
         check_environment()
         
+        # Initialize database connection
         if not supabase_manager.initialize():
             st.error("Failed to initialize database connection!")
             st.stop()
-        
+            
         # Show info screen if not submitted
         if not st.session_state.get('info_submitted', False):
             show_info_screen()
             return
 
-        # Sidebar content (unchanged)
+        # Sidebar content
         with st.sidebar:
             st.markdown("<h3 class='subsection-header'>Current Information</h3>", unsafe_allow_html=True)
             st.markdown(f"""
@@ -3193,14 +3750,17 @@ def main():
             
             st.markdown("---")
             st.markdown("### Personas")
-            load_persona_selector()  # Display saved personas
+            
+            # Display saved personas
+            load_persona_selector()
+            
             if st.button("➕ Create New Persona", key="create_new_persona", use_container_width=True):
                 st.session_state['show_persona_wizard'] = True
                 st.session_state['role_play_active'] = True
                 time.sleep(0.5)
                 try_rerun()
 
-            # Active persona (if available)
+            # Show active persona if available
             if st.session_state.get('child_persona'):
                 st.info(f"Active: {st.session_state.child_persona.get('name', 'Unnamed')}")
             
@@ -3212,39 +3772,41 @@ def main():
             st.markdown("---")
             display_progress_sidebar(feature_order)
 
-        # Main content area:
+        # Main content area
         if st.session_state.get('show_tutorial', True):
             show_tutorial()
         else:
             st.markdown("<h1 class='main-header'>Parenting Support Bot</h1>", unsafe_allow_html=True)
             
-            # If a persona already exists, ensure the wizard is closed:
+            # Close wizard if persona exists
             if st.session_state.get('child_persona'):
                 st.session_state['show_persona_wizard'] = False
 
-            # Show persona wizard if requested:
+            # Show persona wizard if requested
             if st.session_state.get('show_persona_wizard', False):
                 display_persona_wizard()
                 return
 
-            # If showing saved items:
+            # Show saved items or main features
             if st.session_state.get('show_saved_items', False):
                 display_saved_items()
                 if st.button("← Back to Main Menu", type="secondary"):
                     st.session_state['show_saved_items'] = False
                     st.rerun()
             else:
-                # --- KEY FIX: Force the radio widget to default to Role-Play Simulation ---
+                # Feature selection
                 options = list(feature_order.keys())
                 roleplay_index = options.index("Role-Play Simulation")
                 
+                # Default to Role-Play if active
                 if st.session_state.get('role_play_active', False):
                     st.session_state.pop("selected_feature", None)
                     default_index = roleplay_index
                 else:
                     default_index = 0
 
-                computed_selected = st.radio(
+                # Feature selection radio
+                selected_feature = st.radio(
                     "Choose an option:",
                     options,
                     index=default_index,
@@ -3252,23 +3814,27 @@ def main():
                     help="Select a tool that best matches your current needs",
                     key="selected_feature"
                 )
-                st.info(feature_order[computed_selected])
                 
-                # Execute the selected feature’s logic:
-                if computed_selected == "Advice":
+                st.info(feature_order[selected_feature])
+                
+                # Feature execution
+                if selected_feature == "Advice":
                     track_feature_visit("advice")
                     display_advice(
                         st.session_state['parent_name'],
                         st.session_state['child_age'],
                         st.session_state['situation']
                     )
-                elif computed_selected == "Communication Techniques":
+                    
+                elif selected_feature == "Communication Techniques":
                     track_feature_visit("communication_techniques")
                     display_communication_techniques(st.session_state['situation'])
-                elif computed_selected == "Conversation Starters":
+                    
+                elif selected_feature == "Conversation Starters":
                     track_feature_visit("conversation_starters")
                     display_conversation_starters(st.session_state['situation'])
-                elif computed_selected == "Role-Play Simulation":
+                    
+                elif selected_feature == "Role-Play Simulation":
                     track_feature_visit("role_play")
                     if not st.session_state.get('child_persona'):
                         st.warning("Please create or select a persona before starting the simulation")
@@ -3281,42 +3847,21 @@ def main():
                             st.session_state['child_age'],
                             st.session_state['situation']
                         )
-                        
+        
+        # Update analytics
         update_session_analytics()
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
         print(f"Detailed error: {str(e)}")
         traceback.print_exc()
-
-
-
-def update_session_analytics():
-    if 'session_start_time' in st.session_state:
-        current_time = datetime.now()
-        st.session_state['session_duration'] = (current_time - st.session_state['session_start_time']).total_seconds()
-        st.session_state['last_interaction_time'] = current_time
         
-        # Check for session timeout (30 minutes)
-        time_since_last_interaction = (current_time - st.session_state['last_interaction_time']).total_seconds()
-        if time_since_last_interaction > 1800:
-            st.warning("Your session has been inactive for 30 minutes. Please refresh the page to continue.")
+        # Provide recovery options
+        if st.button("🔄 Reset Application"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
-def reset_session_info():
-    """Reset session information for editing"""
-    keys_to_reset = [
-        'info_submitted',
-        'conversation_history',
-        'run_id',
-        'simulation_id',
-        'current_simulation_id',
-        'child_persona'
-    ]
-    
-    for key in keys_to_reset:
-        st.session_state.pop(key, None)
-
-# Run the application
 if __name__ == "__main__":
     try:
         main()
