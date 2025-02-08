@@ -10,6 +10,7 @@ python-dotenv
 SQLAlchemy
 supabase
 psycopg2-binary 
+plotly
 
 urllib3
 pandas
